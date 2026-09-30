@@ -127,9 +127,16 @@ enum StartServer {
         }
     }
 
+    /// The arguments the npx spawn is given: the tagged package reference and
+    /// the subcommand, in one place. The page's command line is this array
+    /// joined under `npx`, and the spawn hands it to `Process` unchanged, so
+    /// what the page shows and what executes cannot be edited apart.
+    static let npxArguments = [Config.startPackageReference] + Config.startSubcommand
+
     /// The command to print when the reader has to do it by hand. The same
-    /// words oc-dash prints in its own failures, so the two agree.
-    static let byHand = "npx \(Config.startPackageName) \(Config.startSubcommand.joined(separator: " "))"
+    /// arguments the npx spawn gets, under the bare `npx` a terminal already
+    /// resolves, and the same `server start` oc-dash spells in its own help.
+    static let byHand = (["npx"] + npxArguments).joined(separator: " ")
 
     // MARK: - What to run, decided without running it
 
@@ -193,7 +200,7 @@ enum StartServer {
         for name in Config.startBinaryNames {
             guard let executable = report.found[name] else { continue }
             let arguments =
-                name == "npx" ? [Config.startPackageName] + Config.startSubcommand : Config.startSubcommand
+                name == "npx" ? npxArguments : Config.startSubcommand
             return .success(Command(executable: executable, arguments: arguments, path: report.path, name: name))
         }
         return .failure(

@@ -114,7 +114,7 @@ The path constraint is the quit verb's, in both directions:
 The served widget's button is unreachable when no dashboard is serving it,
 which is the case it exists for. So the shell's own offline page carries a
 start control too, wired to the same verb, plus the command line under it:
-`npx @webfueler/oc-dash server start`. The button is the fast path; the
+`npx @webfueler/oc-dash@latest server start`. The button is the fast path; the
 command is the escape hatch for a first run that has to download the package,
 a machine that is offline, or a person who wants to read the output in their
 own terminal.
@@ -167,8 +167,11 @@ as Finder left it fails with `env: node: No such file or directory`.
 Binaries are tried in the order `Config.startBinaryNames`, so an installed
 `oc-dash` wins over `npx` and runs without asking npm to fetch anything. `npx`
 is the fallback for the machine where the package was never installed globally,
-and it gets the published package name `@webfueler/oc-dash`. The bare name
-`oc-dash` is a 404 on the registry.
+and it gets the published package reference `@webfueler/oc-dash@latest`. The tag
+is not decoration: a bare name reaches npx as the range `*`, which it tries to
+satisfy with a copy already on the machine, while a tag is resolved against the
+registry and the button starts what is published now. The bare name `oc-dash`
+is a 404 on the registry.
 
 ### When it does not work, the log says which thing failed
 
@@ -180,7 +183,7 @@ One line each, on stderr, with the child's own words quoted underneath:
 [oc-dashbar]   PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 [oc-dashbar]   A login shell that has never run a version manager has no node on it, which is the normal state of a machine where npm was never set up.
 [oc-dashbar]   Install it once, with: npm i -g @webfueler/oc-dash
-[oc-dashbar]   Or start the dashboard from a terminal: npx @webfueler/oc-dash server start
+[oc-dashbar]   Or start the dashboard from a terminal: npx @webfueler/oc-dash@latest server start
 ```
 
 The other seven are no login shell at all, a login shell that would not run,
@@ -192,7 +195,7 @@ case's text is asserted in `Tests/oc-dashbar-tests/StartServerTests.swift`.
 A start that is still running after `Config.startWatchTimeout`:
 
 ```
-[oc-dashbar] start request #1: /Users/you/.nvm/versions/node/v22.22.2/bin/npx @webfueler/oc-dash server start is still running after 25s, which is what a started server looks like. Not watching it again: oc-dash server stop is the only thing that stops it.
+[oc-dashbar] start request #1: /Users/you/.nvm/versions/node/v22.22.2/bin/npx @webfueler/oc-dash@latest server start is still running after 25s, which is what a started server looks like. Not watching it again: oc-dash server stop is the only thing that stops it.
 [oc-dashbar] start request #1, the child said:
 [oc-dashbar]   oc-dash listening on http://127.0.0.1:4022
 ```

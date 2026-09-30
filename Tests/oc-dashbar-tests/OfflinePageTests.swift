@@ -30,8 +30,8 @@ struct OfflinePageTests {
 
     @Test("the command line names the published package, not the bare name that is a 404")
     func commandLine() {
-        #expect(StartServer.byHand == "npx @webfueler/oc-dash server start")
-        #expect(html.contains("npx @webfueler/oc-dash server start"))
+        #expect(StartServer.byHand == "npx @webfueler/oc-dash@latest server start")
+        #expect(html.contains("npx @webfueler/oc-dash@latest server start"))
     }
 
     @Test("the diagnostics name the port tried and the registry file consulted")

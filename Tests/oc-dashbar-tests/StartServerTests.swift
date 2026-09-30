@@ -96,17 +96,30 @@ struct StartServerTests {
         }
         #expect(command.name == "npx")
         #expect(command.executable == "\(nvmPath)/npx")
-        #expect(command.arguments == ["@webfueler/oc-dash", "server", "start"])
-        #expect(command.display == "\(nvmPath)/npx @webfueler/oc-dash server start")
+        #expect(command.arguments == ["@webfueler/oc-dash@latest", "server", "start"])
+        #expect(command.display == "\(nvmPath)/npx @webfueler/oc-dash@latest server start")
     }
 
-    /// The package name is the published one and not the bare `oc-dash`. A bare
-    /// name is a 404 on the registry, and this is the string the child gets, so
-    /// a typo here is a button that fails on every machine.
-    @Test("the package name is the one the registry actually has")
-    func packageName() {
+    /// The package reference is the published one and not the bare `oc-dash`,
+    /// and it carries the tag npx resolves against the registry. A bare name
+    /// is a 404, and an untagged one can be satisfied by whatever copy is
+    /// already on the machine, so a typo here is a button that fails or a
+    /// button that starts yesterday's package.
+    @Test("the package reference is the published name with the latest tag")
+    func packageReference() {
         #expect(Config.startPackageName == "@webfueler/oc-dash")
-        #expect(StartServer.byHand == "npx @webfueler/oc-dash server start")
+        #expect(Config.startPackageTag == "latest")
+        #expect(Config.startPackageReference == "@webfueler/oc-dash@latest")
+        #expect(StartServer.byHand == "npx @webfueler/oc-dash@latest server start")
+    }
+
+    /// The page reads `byHand`; the spawn hands `npxArguments` to the child.
+    /// One array, so the two cannot drift, and the literal is spelled out so
+    /// a matching typo in both cannot agree with itself.
+    @Test("the displayed command and the spawn's arguments are one array")
+    func oneCommandSource() {
+        #expect(StartServer.npxArguments == ["@webfueler/oc-dash@latest", "server", "start"])
+        #expect(StartServer.byHand == (["npx"] + StartServer.npxArguments).joined(separator: " "))
     }
 
     /// A PATH entry is allowed to contain an `=`, and truncating the PATH at the
@@ -199,7 +212,7 @@ struct StartServerTests {
         #expect(text.contains("4 entries"))
         #expect(text.contains("PATH=/usr/bin:/bin:/usr/sbin:/sbin"))
         #expect(text.contains("npm i -g @webfueler/oc-dash"))
-        #expect(text.contains("npx @webfueler/oc-dash server start"))
+        #expect(text.contains("npx @webfueler/oc-dash@latest server start"))
         // Every line carries a prefix, so a quoted message is greppable.
         #expect(failure.message.allSatisfy { !$0.isEmpty })
     }
@@ -212,7 +225,7 @@ struct StartServerTests {
         #expect(text.contains("$SHELL is unset"))
         #expect(text.contains("the user record names unset"))
         #expect(text.contains("PATH=/usr/bin:/bin:/usr/sbin:/sbin"))
-        #expect(text.contains("npx @webfueler/oc-dash server start"))
+        #expect(text.contains("npx @webfueler/oc-dash@latest server start"))
     }
 
     @Test("a shell that failed quotes what it said")
@@ -225,7 +238,7 @@ struct StartServerTests {
         let text = failure.message.joined(separator: "\n")
         #expect(text.contains("/bin/zsh -l -i -c exited 1"))
         #expect(text.contains("it said: /etc/zshrc:3: permission denied"))
-        #expect(text.contains("npx @webfueler/oc-dash server start"))
+        #expect(text.contains("npx @webfueler/oc-dash@latest server start"))
     }
 
     @Test("a shell that never answered says so and says it was stopped")
@@ -234,7 +247,7 @@ struct StartServerTests {
         let text = failure.message.joined(separator: "\n")
         #expect(text.contains("did not answer within 10s"))
         #expect(text.contains("was stopped"))
-        #expect(text.contains("npx @webfueler/oc-dash server start"))
+        #expect(text.contains("npx @webfueler/oc-dash@latest server start"))
     }
 
     @Test("an answer with no PATH in it is refused rather than guessed at")
@@ -251,7 +264,7 @@ struct StartServerTests {
         let text = failure.message.joined(separator: "\n")
         #expect(text.contains("could not run the login shell /bin/zsh"))
         #expect(text.contains("No such file or directory"))
-        #expect(text.contains("npx @webfueler/oc-dash server start"))
+        #expect(text.contains("npx @webfueler/oc-dash@latest server start"))
     }
 
     /// A spawn that fails is a different problem from a missing install, and
@@ -274,7 +287,7 @@ struct StartServerTests {
     @Test("a non-zero exit quotes the exit code, the time and what oc-dash said")
     func exitedNonZeroMessage() {
         let failure = StartServer.Failure.exitedNonZero(
-            command: "/usr/local/bin/npx @webfueler/oc-dash server start",
+            command: "/usr/local/bin/npx @webfueler/oc-dash@latest server start",
             exitCode: 1,
             seconds: 3.9,
             said: "oc-dash exited before it finished starting (exit code 1).\n"

@@ -77,6 +77,19 @@ enum Config {
     /// string oc-dash prints in every error message of its own.
     static let startPackageName = "@webfueler/oc-dash"
 
+    /// The tag `npx` resolves the package by.
+    ///
+    /// Not decoration. Without a tag, npx parses the bare name as the range
+    /// `*`, and a range matches a copy already in the current project instead
+    /// of resolving the registry. A tag is resolved against the registry, so
+    /// the button starts what is published now.
+    static let startPackageTag = "latest"
+
+    /// The package reference with its tag, written once: the page's command
+    /// line and the npx spawn both read this string, so a tag added to one
+    /// cannot be missing from the other.
+    static var startPackageReference: String { "\(startPackageName)@\(startPackageTag)" }
+
     /// The subcommand, spelled the way oc-dash spells it in its help and in
     /// every error it prints.
     static let startSubcommand = ["server", "start"]
