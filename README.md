@@ -7,6 +7,54 @@ The page itself lives in the oc-dash repository, and the dashboard ships as a
 separate package (`@webfueler/oc-dash`). This repository is the shell around
 it: status item, popover, URL, app bundle, and nothing else.
 
+## Download
+
+Releases are on GitHub: <https://github.com/webfueler/oc-dashbar/releases/latest>.
+The first one is 1.0.0, and its two assets are `oc-dashbar-1.0.0.zip` and
+`oc-dashbar-1.0.0.zip.sha256`. Later releases carry their own version in the
+same two names.
+
+```sh
+shasum -a 256 -c oc-dashbar-1.0.0.zip.sha256   # prints: oc-dashbar-1.0.0.zip: OK
+unzip oc-dashbar-1.0.0.zip
+mv oc-dashbar.app /Applications/               # or drag it there in Finder
+```
+
+### The first launch is stopped by Gatekeeper
+
+The app is ad-hoc signed (`codesign -s -`) and not notarized, because there is
+no Apple Developer membership behind this project. macOS quarantines the
+downloaded copy, so the first launch is refused before the status item ever
+appears. Any one of these gets past it:
+
+1. In Finder, right-click (or Control-click) `oc-dashbar.app`, choose Open,
+   then click Open in the dialog. macOS remembers the exception.
+2. System Settings, then Privacy & Security, then Security, then Open Anyway
+   next to the oc-dashbar entry.
+3. In a terminal: `xattr -dr com.apple.quarantine /Applications/oc-dashbar.app`
+
+None of them changes the app. The workflow is the standard exception macOS
+offers for software its owner chose to run, and it has to be a human at the
+machine: nothing in the bundle can lift its own quarantine.
+
+Once it is running the item is a waveform icon in the menu bar. There is no
+Dock icon and no app menu.
+
+### What the app needs to show anything
+
+The zip is the shell only. It loads the widget page that oc-dash serves, so:
+
+- macOS 26 (Tahoe) or newer. The zip declares `LSMinimumSystemVersion 26.0`.
+- Something that can run the dashboard: Node 22+ with `npx`, or a global
+  install (`npm i -g @webfueler/oc-dash`).
+- A dashboard running: `npx @webfueler/oc-dash@latest server start`. If none
+  is, the shell shows an offline page whose start button runs that command.
+- opencode2 on the machine with session data, for the dashboard to have
+  numbers.
+
+The rest of this file is about how the two halves find each other, what the
+start button does, and why the glass looks the way it does.
+
 ## Requirements
 
 macOS 26 (Tahoe) or newer. No dependencies, no build system beyond SwiftPM and
@@ -29,6 +77,13 @@ swift test                      # XCTest-less swift-testing suite in Tests/
 open build/oc-dashbar.app       # run the bundle
 xcrun swift-format lint -r Sources Tests   # xcrun is required, not on PATH
 ```
+
+`Scripts/release.sh` wraps that list for a release. It runs the four commands
+above as its gate, builds and stamps the bundle, writes
+`build/oc-dashbar-<version>.zip` and its `.sha256`, tags `v<version>`, pushes
+main and the tag, then creates the GitHub Release from
+`Scripts/release-notes.md`. It needs `gh` logged in; without that it stops
+after the push and prints the one `gh release create` command left to run.
 
 The status item only shows up once the app runs. `LSUIElement` keeps it out of
 the Dock, so there is no window to look for and no way to quit it from the
@@ -269,6 +324,8 @@ Sources/oc-dashbar/OfflinePage.swift  the page shown when the dashboard is not a
 Sources/oc-dashbar/AppDelegate.swift  status item, popover, webview, offline page
 Tests/oc-dashbar-tests/            config, discovery, material and ordering tests, incl. cross-repo contracts
 Scripts/build-app.sh               the whole "build system"
+Scripts/release.sh                 the release: gate, zip, tag, push, gh release
+Scripts/release-notes.md           the text published as the release notes
 ```
 
 ## Rules

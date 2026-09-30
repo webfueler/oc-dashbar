@@ -4,6 +4,7 @@
 #
 #   Scripts/build-app.sh            # release build
 #   Scripts/build-app.sh debug
+#   Scripts/build-app.sh release 1.0.0   # release build, version stamped
 #
 # Produces build/oc-dashbar.app, ad-hoc signed. Per Apple TN2206 an unsigned,
 # unquarantined local build runs fine; the signature is there so Keychain and
@@ -12,6 +13,10 @@ set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 config="${1:-release}"
+# Second argument: the version stamped into the bundle. Scripts/release.sh
+# passes the tag's version here so the bundle, the zip name, the release
+# title and the tag agree. The default is what a development build carries.
+version="${2:-0.1.0}"
 app="$root/build/oc-dashbar.app"
 
 bin_dir="$(cd "$root" && swift build -c "$config" --show-bin-path)"
@@ -32,7 +37,9 @@ printf 'APPL????' >"$app/Contents/PkgInfo"
 # LSUIElement true is the load-bearing key: it keeps the app out of the Dock
 # and gives it no app menu, which is what a menu bar widget wants.
 # LSMinimumSystemVersion must be kept in step with platforms in Package.swift.
-cat >"$app/Contents/Info.plist" <<'PLIST'
+# The heredoc below is unquoted so $version expands; keep other $ and
+# backticks out of its body if this template ever changes.
+cat >"$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -52,7 +59,7 @@ cat >"$app/Contents/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>$version</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
@@ -68,4 +75,4 @@ PLIST
 codesign --force --sign - "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
 
-echo "build-app.sh: built $app ($config)"
+echo "build-app.sh: built $app ($config, version $version)"
