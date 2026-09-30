@@ -63,8 +63,16 @@ version="${arg_version:-$head_version}"
     die "no version: pass one (Scripts/release.sh v1.2.3) or tag this commit first"
 tag="v$version"
 
+# Digits and dots only, and exactly the X.Y.Z shape. Written as glob checks
+# and not one pattern, because bash 3.2's matcher mishandles repeated bracket
+# expressions (it rejects 1.0.0 for [0-9][0-9]*.[0-9]...); these are exact.
 case "$version" in
-    [0-9][0-9]*.[0-9][0-9]*.[0-9][0-9]*) ;;
+    *[!0-9.]* | .* | *. | *..* | *.*.*.*)
+        die "version must look like 1.2.3 (got $version)"
+        ;;
+esac
+case "$version" in
+    *.*.*) ;;
     *) die "version must look like 1.2.3 (got $version)" ;;
 esac
 
