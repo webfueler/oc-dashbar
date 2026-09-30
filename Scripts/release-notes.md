@@ -24,7 +24,7 @@ The app is ad-hoc signed (`codesign -s -`) and not notarized, because this proje
 
 1. In Finder, right-click (or Control-click) `oc-dashbar.app`, choose Open, then click Open in the dialog. macOS remembers the exception.
 2. System Settings, then Privacy & Security, then Security, then Open Anyway next to oc-dashbar.
-3. In a terminal: `xattr -dr com.apple.quarantine /Applications/oc-dashbar.app`
+3. In a terminal, before the first launch: `xattr -dr com.apple.quarantine /Applications/oc-dashbar.app`. Once macOS has evaluated a copy, the flag is locked and this route stops working; the two above always do.
 
 None of them changes the app. It is the same unsigned copy either way.
 

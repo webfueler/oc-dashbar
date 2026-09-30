@@ -31,7 +31,10 @@ appears. Any one of these gets past it:
    then click Open in the dialog. macOS remembers the exception.
 2. System Settings, then Privacy & Security, then Security, then Open Anyway
    next to the oc-dashbar entry.
-3. In a terminal: `xattr -dr com.apple.quarantine /Applications/oc-dashbar.app`
+3. In a terminal, before the first launch: `xattr -dr com.apple.quarantine
+   /Applications/oc-dashbar.app`. Once macOS has evaluated a copy it locks the
+   flag, so this route has to run before the first double-click; the two
+   routes above work either way.
 
 None of them changes the app. The workflow is the standard exception macOS
 offers for software its owner chose to run, and it has to be a human at the
