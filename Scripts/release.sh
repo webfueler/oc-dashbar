@@ -12,8 +12,9 @@
 # the tag at HEAD when one is there, and a tag that exists anywhere other
 # than HEAD is a failure: nothing in here moves or reuses a tag.
 #
-# Failures are loud. A dirty tree, a missing tool, and a tag at another
-# commit stop the run before anything is built. gh authentication is checked
+# Failures are loud. A dirty tree, a missing tool and a tag at another commit
+# stop the run before anything is built; a zip that carries AppleDouble
+# metadata stops it before the tag is pushed. gh authentication is checked
 # at the release step, after the tag is pushed, because no GitHub token is
 # needed to build over SSH; when it fails, the exact command that finishes
 # the release by hand is printed.
@@ -29,9 +30,9 @@ die() {
 
 # --- preconditions ---------------------------------------------------------
 
-for tool in git swift xcrun ditto shasum plutil gh; do
+for tool in git swift xcrun ditto shasum plutil gh zipinfo; do
     command -v "$tool" >/dev/null 2>&1 ||
-        die "missing $tool; the release needs git, Xcode's command line tools (swift, xcrun), ditto, shasum, plutil and gh"
+        die "missing $tool; the release needs git, Xcode's command line tools (swift, xcrun), ditto, shasum, plutil, gh and Info-ZIP (zipinfo)"
 done
 [ -x Scripts/build-app.sh ] || die "Scripts/build-app.sh is missing or not executable"
 [ -f Scripts/release-notes.md ] || die "Scripts/release-notes.md is missing; the release notes are published from it"
@@ -112,16 +113,36 @@ echo "release.sh: stamped CFBundleShortVersionString=$stamped"
 
 # --- zip and checksum ------------------------------------------------------
 
+# --norsrc keeps every extended attribute out of the archive. It matters:
+# the build bundle carries com.apple.provenance on every item, and a plain
+# `ditto -c -k` stores those as inline AppleDouble (._*) entries. Info-ZIP
+# unzip, the command the README gives users, writes each one as a real file,
+# after which codesign --verify --deep --strict fails with "a sealed resource
+# is missing or invalid" and spctl calls the app damaged. ditto -x -k (the
+# Finder path) strips the inline entries, so the defect only shows up for the
+# README's own unzip; there is no metadata in the archive at all with --norsrc.
 zip="build/oc-dashbar-$version.zip"
 sum="$zip.sha256"
 rm -f "$zip" "$sum"
 (
     cd build &&
-        ditto -c -k --keepParent oc-dashbar.app "oc-dashbar-$version.zip" &&
+        ditto -c -k --keepParent --norsrc oc-dashbar.app "oc-dashbar-$version.zip" &&
         shasum -a 256 "oc-dashbar-$version.zip" >"oc-dashbar-$version.zip.sha256"
 )
 (cd build && shasum -a 256 -c "oc-dashbar-$version.zip.sha256")
 echo "release.sh: $(cat "$sum")"
+
+# The archive must not carry AppleDouble metadata, whether as ._* entries
+# inside the bundle or as a __MACOSX sidecar; both come out of Info-ZIP unzip
+# as real files. Whatever produced it, fail here, before the tag is pushed.
+guard_zip() {
+    if zipinfo -1 "$1" | grep -qE '(^|/)\._|(^|/)__MACOSX(/|$)'; then
+        zipinfo -1 "$1" | grep -E '(^|/)\._|(^|/)__MACOSX(/|$)' >&2
+        die "$1 carries AppleDouble metadata (entries above): the bundle's xattrs were stored in the archive. Build the zip with ditto -c -k --keepParent --norsrc"
+    fi
+}
+guard_zip "$zip"
+echo "release.sh: $zip carries no AppleDouble metadata"
 
 # --- tag and push ----------------------------------------------------------
 
