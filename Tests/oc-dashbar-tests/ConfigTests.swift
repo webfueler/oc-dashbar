@@ -1,5 +1,6 @@
 import AppKit
 import Testing
+import WebKit
 
 @testable import oc_dashbar
 
@@ -75,5 +76,42 @@ struct ConfigTests {
     @Test("panel stays 340x420 until the oc-dash page says otherwise")
     func panelSize() {
         #expect(Config.panelSize == NSSize(width: 340, height: 420))
+    }
+
+    /// The one this panel's transparency now rests on, and the one that fails
+    /// loudly rather than quietly.
+    ///
+    /// The write is by string, so nothing in the build notices a macOS that
+    /// drops the key: the code still compiles, the app still launches, and the
+    /// panel is simply opaque again. This is the failure mode, and it is why it
+    /// needs a test rather than a comment. The underscored selector is what has
+    /// to be asked about, because the obvious name is not implemented and a test
+    /// written against it would pass on a WebKit that had thrown the key away.
+    @Test("the private key the panel's transparency depends on is still on WKWebView")
+    @MainActor
+    func webviewDrawsBackgroundKeyIsStillOnThisSDK() {
+        #expect(Config.webviewDrawsBackgroundKey == "drawsBackground")
+        #expect(Config.webviewDrawsBackgroundSelector == "_setDrawsBackground:")
+        let view = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        #expect(view.responds(to: NSSelectorFromString(Config.webviewDrawsBackgroundSelector)))
+    }
+
+    /// The default, not a variant, because there is no variant any more.
+    ///
+    /// Nothing is set in the environment to get here, which is the point: this
+    /// drives the one function `installPopover()` calls and reads the key back
+    /// off a real webview, so it is the shipped behaviour under test rather than
+    /// a copy of it. The read before the call is what makes the read after it
+    /// mean something, and it doubles as the record that WebKit still defaults
+    /// this on, which is the slab the whole key exists to remove.
+    @Test("with nothing set anywhere, the webview is told not to paint its own background")
+    @MainActor
+    func webviewBackgroundIsTransparentByDefault() {
+        let view = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let before = view.value(forKey: Config.webviewDrawsBackgroundKey) as? NSNumber
+        #expect(before?.boolValue == true)
+        AppDelegate.applyWebviewCompositing(to: view)
+        let after = view.value(forKey: Config.webviewDrawsBackgroundKey) as? NSNumber
+        #expect(after?.boolValue == false)
     }
 }

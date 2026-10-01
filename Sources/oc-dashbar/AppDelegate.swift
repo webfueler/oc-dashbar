@@ -72,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
                 + "nonActivatingPanel=\(Config.nonActivatingPanel), "
                 + "material=\(Config.translucentPanel ? Config.panelMaterial.rawValue : "none"), "
                 + "materialAlpha=\(Config.panelMaterialAlpha), "
+                + "webviewBackground=transparent, "
                 + "url=\(atLaunch.url?.absoluteString ?? "unresolved"), "
                 + "registry=\(ServiceRegistry.currentPath())"
         )
@@ -262,9 +263,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         view.autoresizingMask = [.width, .height]
         view.navigationDelegate = self
         // Documented API (macOS 12+): the colour WebKit paints behind the page.
-        // The undocumented `drawsBackground` KVC key on WKWebViewConfiguration
-        // is deliberately not used.
+        // It is set, and it is not enough: the header scopes it to the region
+        // under the page's content, and the slab this panel had was the region
+        // outside that content. The private key below is what clears the whole
+        // view, which is also why it is written on the webview and not on this
+        // configuration: on this SDK it is not on `WKWebViewConfiguration` at
+        // all.
         view.underPageBackgroundColor = .clear
+        AppDelegate.applyWebviewCompositing(to: view)
 
         // The material is the bottom of the stack and the page is hosted inside
         // it, so the page's transparent pixels composite over a real system
@@ -296,6 +302,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         // popover to the hosted view and would otherwise win the race.
         popover.contentSize = Config.panelSize
         self.popover = popover
+    }
+
+    // MARK: - Webview compositing
+
+    /// Tells the panel's webview not to paint a background behind the page, which
+    /// is what makes the panel transparent: the page's transparent pixels
+    /// composite with the material and the desktop instead of landing on a slab
+    /// WebKit drew for itself. Unconditional, and the only non-public write in
+    /// this app.
+    ///
+    /// **`drawsBackground` is private AppKit.** It is declared in no header on
+    /// this SDK, and no public API does this job. The property that sounds like
+    /// it, `underPageBackgroundColor`, is documented as the colour "used as the
+    /// background color under the page's content, such as for scroll bouncing
+    /// areas", and the region that read as an opaque slab is the region outside
+    /// the page's content, which that sentence does not cover; setting it to
+    /// clear was measured and changed nothing there. The view-level `isOpaque`
+    /// is readonly and reads `true` on a fresh `WKWebView` where a plain `NSView`
+    /// reads `false`, and neither `setOpaque:` nor a KVC write to `opaque` clears
+    /// it, while `layer.isOpaque` is already `false` before anything is done to
+    /// it. The write below is the one thing that does clear it, as a side effect,
+    /// which is also how the object graph shows that the write landed.
+    /// `NSView.backgroundColor`, the other name for the same idea, is not public
+    /// API on this SDK. The key is not on `WKWebViewConfiguration` either: no
+    /// property, no method, two unrelated ivars, and a KVC write there raises
+    /// `NSUnknownKeyException`.
+    ///
+    /// **Apple may remove this key in any macOS update, without deprecating it
+    /// and without a compile error here, because the write is by string.** If the
+    /// panel is ever opaque again, read this before looking anywhere else. The
+    /// numbers behind the write are mission 022's: the webview's unpainted
+    /// region reads alpha 1.0 with the key left alone and alpha 0.0 with it set
+    /// to false, and a page painting 50% red over the same setup reads alpha
+    /// 0.75, so the region really does composite rather than being painted over.
+    ///
+    /// The write is deliberately unguarded, and the reason is the same one. A KVC
+    /// write to a key the runtime no longer has raises `NSUnknownKeyException`,
+    /// which in Swift is a trap, so a macOS that drops the key outright fails at
+    /// launch instead of quietly shipping an opaque panel. What no guard can
+    /// catch is a key that survives but stops mattering, and `ConfigTests`
+    /// asserts the selector is still on `WKWebView` for that case.
+    ///
+    /// Not `private`, so a test can drive this exact function and read the key
+    /// back off a real webview. That is the only reason for the access level.
+    static func applyWebviewCompositing(to view: WKWebView) {
+        view.setValue(NSNumber(value: false), forKey: Config.webviewDrawsBackgroundKey)
+        Log.info(
+            "webview compositing: wrote the private drawsBackground key, the webview paints no background of its own"
+        )
     }
 
     /// Prepares the popover's window and returns whether it did anything.
@@ -359,6 +414,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         Log.info(
             "popover show #\(showCount), size \(Int(popover.contentSize.width))x\(Int(popover.contentSize.height))pt, "
                 + "material=\(Config.translucentPanel ? Config.panelMaterial.rawValue : "none"), "
+                + "webviewBackground=transparent, "
                 + "shown=\(popover.isShown), prepared=\(popoverWindowPrepared), "
                 + "windowOpaque=\(String(describing: popover.contentViewController?.view.window?.isOpaque)), "
                 + "app is active: \(NSApp.isActive)"

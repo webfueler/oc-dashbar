@@ -269,6 +269,27 @@ enum Config {
     /// `panelMaterialOpacity` after `clampedOpacity(_:)`.
     static var panelMaterialAlpha: CGFloat { clampedOpacity(panelMaterialOpacity) }
 
+    /// The KVC key on `WKWebView` that stops WebKit painting its own background
+    /// behind the page. This is what makes the panel transparent: the page's
+    /// transparent pixels composite with the material and the desktop instead of
+    /// landing on a slab WebKit painted for itself.
+    ///
+    /// It is private AppKit, declared in no header on this SDK, and no public API
+    /// does this job. `AppDelegate.applyWebviewCompositing(to:)` is where the
+    /// write is, and the evidence for each of those claims is written down there.
+    ///
+    /// Unconditional, with no environment variable and no variant. Whether the
+    /// panel ends up transparent is a fact about the SDK and the page's CSS, not
+    /// a per-run preference, so a switch for it would be a switch whose every
+    /// value is the same.
+    static let webviewDrawsBackgroundKey = "drawsBackground"
+
+    /// The Objective-C setter behind `webviewDrawsBackgroundKey`, underscored,
+    /// and the probe for whether the key is still on the runtime at all.
+    /// `setDrawsBackground:` is not implemented, so `responds(to:)` has to be
+    /// asked about this name and not the obvious one.
+    static let webviewDrawsBackgroundSelector = "_setDrawsBackground:"
+
     /// Test hook only, off by default: opens the panel at launch so the webview
     /// can be exercised without a human clicking the status item. Set
     /// `OC_DASHBAR_OPEN_ON_LAUNCH=1` alongside the URL override.
