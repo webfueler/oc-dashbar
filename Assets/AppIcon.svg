@@ -1,0 +1,34 @@
+<!--
+  The source of truth for AppIcon.icns. Scripts/build-app.sh rasterises this
+  file and nothing else.
+
+  It is oc-dash/public/favicon.svg (the dashboard's favicon, 641 bytes) with
+  two changes, and both of them are load-bearing.
+
+  1. The @media (prefers-color-scheme: light) block is gone; the dark values
+     are literals. This file exists in this repo precisely because sips
+     mishandles that block. Rasterising the untouched favicon yields a
+     hybrid: the dark tile #161b22 and border #30363d from the base rules,
+     but the light-mode chevron #0969da and cursor #1a7f37 from inside the
+     media query. Reproducible at every size, and it looks plausible enough
+     to ship by accident. Resolving the colours here is the fix.
+
+  2. The viewBox is 4 4 56 56, not 0 0 64 64. That crops the favicon's 4-unit
+     inset, so the tile runs to the edge of the canvas and the border reads
+     as one outline rather than an inner ring.
+
+  It is committed here rather than read from oc-dash during the build. The two
+  repos are released independently, so a sibling checkout that got cleaned up,
+  renamed or moved would break this build for a reason with nothing to do with
+  the icon. Revisit the file by hand when the favicon artwork changes.
+
+  Deliberately absent: padding, a squircle, a shadow. macOS masks and insets
+  the icon itself, and it does that to every input, so anything baked in here
+  gets shrunk a second time. Fill the canvas edge to edge and let the system
+  cut the shape.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 56 56">
+  <rect x="4" y="4" width="56" height="56" rx="12" fill="#161b22" stroke="#30363d" stroke-width="4"/>
+  <path d="M20 21 L33 32 L20 43" fill="none" stroke="#4493f8" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="38" y="36" width="14" height="8" rx="2" fill="#7ee2a8"/>
+</svg>

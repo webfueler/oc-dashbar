@@ -34,9 +34,40 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin" "$app/Contents/MacOS/oc-dashbar"
 printf 'APPL????' >"$app/Contents/PkgInfo"
 
+# App icon. Rasterised from Assets/AppIcon.svg on every build, into all ten
+# iconset entries at their own size, straight from the vector. Nothing is
+# downsampled from the 1024, so the 16px entries keep a hard chevron rather
+# than the 1024's resampling mush. sips -z renders an SVG at whatever size it
+# is handed, so no width or height has to be injected into the source first.
+# sips and iconutil both live in /usr/bin, so this adds no dependency.
+#
+# The copy into Contents/Resources has to happen before codesign runs below.
+# A resource added after signing breaks the seal, and the failure is a verify
+# error on the next build rather than anything visible here.
+icon_src="$root/Assets/AppIcon.svg"
+iconset="$root/build/AppIcon.iconset"
+rm -rf "$iconset"
+mkdir -p "$iconset"
+for entry in \
+    icon_16x16:16 icon_16x16@2x:32 \
+    icon_32x32:32 icon_32x32@2x:64 \
+    icon_128x128:128 icon_128x128@2x:256 \
+    icon_256x256:256 icon_256x256@2x:512 \
+    icon_512x512:512 icon_512x512@2x:1024
+do
+    sips -s format png -z "${entry##*:}" "${entry##*:}" "$icon_src" \
+        --out "$iconset/${entry%:*}.png" >/dev/null
+done
+iconutil -c icns "$iconset" -o "$root/build/AppIcon.icns"
+cp "$root/build/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
+
 # LSUIElement true is the load-bearing key: it keeps the app out of the Dock
 # and gives it no app menu, which is what a menu bar widget wants.
 # LSMinimumSystemVersion must be kept in step with platforms in Package.swift.
+# CFBundleIconFile points at Contents/Resources/AppIcon.icns, written above.
+# CFBundleIconName is deliberately absent. It is the asset-catalog hook, and
+# this bundle has no catalog, so macOS resolves it to nothing and serves the
+# generic app icon without a warning. Measured, not assumed.
 # The heredoc below is unquoted so $version expands; keep other $ and
 # backticks out of its body if this template ever changes.
 cat >"$app/Contents/Info.plist" <<PLIST
@@ -48,6 +79,8 @@ cat >"$app/Contents/Info.plist" <<PLIST
     <string>en</string>
     <key>CFBundleExecutable</key>
     <string>oc-dashbar</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>dev.joaosantos.oc-dashbar</string>
     <key>CFBundleInfoDictionaryVersion</key>
