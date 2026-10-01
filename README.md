@@ -11,18 +11,25 @@ it: status item, popover, URL, app bundle, and nothing else.
 
 Releases are on GitHub: <https://github.com/webfueler/oc-dashbar/releases/latest>.
 That `latest` link is the current release and always will be, so it is the one to
-bookmark rather than a version number. The current one is 1.0.1, its two assets
-are `oc-dashbar-1.0.1.zip` and `oc-dashbar-1.0.1.zip.sha256`, and later releases
+bookmark rather than a version number. The current one is 1.1.0, its two assets
+are `oc-dashbar-1.1.0.zip` and `oc-dashbar-1.1.0.zip.sha256`, and later releases
 carry their own version in those same two names.
 
 ```sh
-shasum -a 256 -c oc-dashbar-1.0.1.zip.sha256   # prints: oc-dashbar-1.0.1.zip: OK
-unzip oc-dashbar-1.0.1.zip
+shasum -a 256 -c oc-dashbar-1.1.0.zip.sha256   # prints: oc-dashbar-1.1.0.zip: OK
+unzip oc-dashbar-1.1.0.zip
 mv oc-dashbar.app /Applications/               # or drag it there in Finder
 ```
 
-Earlier releases stay on the same page under their own tags, so 1.0.0 is still
-there to download; it is the only one without an app icon.
+The archive carries no `._*` or `__MACOSX` entries, so the `unzip` above produces
+exactly the bundle and nothing else. That is deliberate: those entries are what
+make a bundle fail `codesign --verify --deep --strict` with "a sealed resource is
+missing or invalid" after extraction, and they only appear if the archive was
+built without `--norsrc`. `Scripts/release.sh` refuses to publish a zip that has
+them.
+
+Earlier releases stay on the same page under their own tags. 1.0.0 is the only
+one without an app icon, and both of them predate the transparent panel.
 
 ### The first launch is stopped by Gatekeeper
 
@@ -44,8 +51,8 @@ None of them changes the app. The workflow is the standard exception macOS
 offers for software its owner chose to run, and it has to be a human at the
 machine: nothing in the bundle can lift its own quarantine.
 
-Once it is running the item is a waveform icon in the menu bar. There is no
-Dock icon and no app menu.
+Once it is running the item is a waveform icon in the menu bar with today's spend
+beside it. There is no Dock icon and no app menu.
 
 ### What the app needs to show anything
 
@@ -100,9 +107,10 @@ Finder. Use Activity Monitor, or `killall oc-dashbar`.
 
 | Variable | Effect |
 | --- | --- |
-| `OC_DASHBAR_URL` | Overrides the widget URL and stops the search below it. Defaults to nothing; the fallback is the registry, then port 4021. |
+| `OC_DASHBAR_URL` | Overrides the widget URL and stops the search below it. Defaults to nothing; the fallback is the registry, then port 4021. It also moves the menu bar figure, which asks whichever server the panel is reading. |
 | `XDG_STATE_HOME` | Which state directory the registry is read from. Defaults to `$HOME/.local/state`. |
 | `OC_DASHBAR_OPEN_ON_LAUNCH` | Test hook. `1` opens the panel at launch, so the webview can be driven without a mouse click. |
+| `OC_DASHBAR_MATERIAL` | Diagnostic hook. One of `glass-regular` (the default), `glass-regular-notint`, `glass-clear`, `visualEffect-behind`, `visualEffect-within`, `none`. Unset or unrecognised means `glass-regular`, which is the supported look; the other five exist so a panel that has gone opaque can be bisected, and `none` is the one that answers it, because it drops the material view and varies nothing else. |
 
 ```sh
 OC_DASHBAR_URL=http://127.0.0.1:4123/widget OC_DASHBAR_OPEN_ON_LAUNCH=1 \
@@ -157,6 +165,89 @@ the shell hoping it came back. The page still owns its own refresh.
 The shell still does not start, stop or supervise anything. Discovery is a file
 read and a `kill(pid, 0)`. The one exception is the start control below, and it
 is one spawn on one click, never touched again.
+
+## Today's money in the menu bar
+
+The status item's title is the server's `costText`, byte for byte. Nothing on
+this side parses it, reformats it or compares it to zero, so a day with no spend
+reads `$0.00` and a large one reads `$1,234,567.90`. There is no formatter here
+on purpose: `Intl.NumberFormat` rounds ties away from zero and neither
+`String(format:)` nor `NumberFormatter` reproduces that, so a formatter on this
+side would be a correctness risk dressed as a tidy-up.
+
+`NSStatusItem.variableLength` is load-bearing. `length` is the width of the slot
+and content that does not fit is clipped, so under `squareLength` the button is
+one icon wide and a title is cut off rather than shown beside it. An
+`NSStatusBarButton` lays image and title out side by side, so no positioning is
+needed; with an empty title the variable length collapses to the image's own
+width and the control looks exactly as it did before this feature.
+
+**Where the figure comes from.** `GET /api/summary?range=today&context=none`, on
+whichever server the panel is reading. The widget URL is resolved first and its
+path is replaced, its query and fragment dropped, so the figure can never end up
+asking a different server than the panel just showed. A menu bar reading `$7.56`
+beside a panel reading `$0.00` is indistinguishable from a bug, and this
+derivation is what prevents it. `context=none` is required rather than cosmetic:
+it skips the second stats call that only feeds the chart's muted context days,
+and this shell renders no chart. A non-`http`/`https` scheme is refused, so a
+`file:` URL cannot turn a background figure into a disk read.
+
+**The poll.** Every 30 seconds, on the same clock the `/widget` page refreshes
+on, plus one tick immediately at launch. Started at launch rather than on the
+first panel open because the figure is only useful while the panel is closed, and
+the immediate first tick because a menu bar that stays empty for half a minute
+after every launch reads as a broken app rather than as a figure that has not
+arrived yet. The timer is added for `.common` as well as `.default`, so the
+figure keeps arriving while a menu is down. The server is re-resolved on every
+tick rather than once at launch, for the same reason the panel re-resolves per
+open: a dashboard can be restarted or moved to another port while this sits in
+the menu bar. It costs one 90 byte file read per 30 seconds.
+
+**At most one request in flight, ever.** `MoneyFetchGate` is the whole rule. A
+tick that arrives while a request is in flight is skipped, not queued, so a slow
+or hung server cannot become a growing pile of requests. There is no retry loop,
+no backoff and no error cascade anywhere that could produce one.
+`Config.moneyRequestTimeout` (10s) is what makes it recover rather than stick:
+the gate alone would park every later tick behind a hung request forever.
+
+**Nothing to show means empty, not something.** The Captain's rule is hide, and a
+dash, a zero, a question mark or the last known value are all a figure of some
+kind. An empty title is the one thing in a menu bar that is unambiguously
+nothing. A figure from thirty seconds ago is removed rather than left up: a
+stale number is a lie with a timestamp on it.
+
+The four reasons are separate in the log, because a silently blank menu bar is
+indistinguishable from a bug:
+
+```
+[oc-dashbar] today money: GET http://127.0.0.1:4021/api/summary?range=today&context=none
+[oc-dashbar] today money: title is now $0.00, admitted=1 skipped=0
+[oc-dashbar] today money: skipped a tick, the last request has not answered yet
+[oc-dashbar] today money: hidden, request failed: The server crashed., admitted=2 skipped=0
+[oc-dashbar] today money: hidden, the server answered degraded, and costText is absent on that arm, admitted=3 skipped=0
+```
+
+The two counters are on every line that changes or refuses to change the title,
+so "the figure never arrived" and "the figure stopped changing" are two different
+lines rather than one silence.
+
+## Opening the dashboard in your browser
+
+The widget's Dashboard button navigates to `oc-dash://open`. The shell cancels
+that navigation and hands the URL to the real browser, leaving its own webview
+exactly where it was. The scheme is the one the page emits, not a name this shell
+picked, the same rule the quit and start verbs follow.
+
+Only loopback targets are accepted: `127.0.0.1`, `localhost` and `::1`, from
+`Config.openTargetHosts`. A miss costs a dead click and a hit on the wrong side
+costs the Captain his browser, so a non-loopback host is refused rather than
+believed. The path constraint is the other verbs' in both directions, and both
+sides are matched lowercased, so `OC-Dash://OPEN/` is the same intent while
+`oc-dash://open/extra` is not.
+
+```
+[oc-dashbar] open intent received: http://127.0.0.1:4021/
+```
 
 ## Starting the dashboard
 
@@ -268,22 +359,71 @@ expires is a process that started, and the shell forgets it there.
 
 ## The material
 
-The popover composites a real system material behind the webview, so a page with
-a transparent ground shows the desktop through it. Four values in
+**The panel is transparent.** Your desktop shows through it. That is the whole
+point of the material: the widget floats on the wallpaper rather than sitting on
+a slab.
+
+Three things have to line up for that, and the first one is the part that is not
+public API.
+
+**1. WebKit must not paint its own background.** This is the private write.
+`AppDelegate.applyWebviewCompositing(to:)` sets `drawsBackground` to `false` on
+the `WKWebView` by KVC. That key is in no header on this SDK, and no public API
+does the job: `underPageBackgroundColor` is documented as the colour "used as the
+background color under the page's content, such as for scroll bouncing areas",
+which is the region *under* the content and not the region outside it, and
+setting it to `.clear` changes nothing there. The view-level `isOpaque` reads
+`true` on a fresh `WKWebView`, is readonly, and neither `setOpaque:` nor a KVC
+write to `opaque` clears it.
+
+**Apple may remove this key in any macOS update, without deprecating it and
+without a compile error here, because the write is by string.** If the panel is
+ever opaque again, read that function before looking anywhere else. Two things
+follow from it:
+
+- `ConfigTests` asserts the underscored selector `_setDrawsBackground:` is still
+  on `WKWebView`. The obvious name is not implemented, so asking about that one
+  would pass on a WebKit that had thrown the key away.
+- The write is deliberately unguarded. A KVC write to a key the runtime no longer
+  has raises `NSUnknownKeyException`, which in Swift is a trap, so a macOS that
+  drops the key outright fails at launch instead of quietly shipping an opaque
+  panel. What no guard catches is a key that survives and stops mattering, and
+  the selector test above is what covers that half.
+
+**2. A real system material has to be behind the page.** Four values in
 `Config.swift`, no environment variables, because they are decisions and not
 per-run settings:
 
 | Value | Default | What it does |
 | --- | --- | --- |
 | `translucentPanel` | `true` | The switch. `false` builds no material and leaves the popover opaque, which is AppKit's default. |
-| `panelMaterial` | `.glass` | `.glass` is `NSGlassEffectView`. `.visualEffect` is the older `NSVisualEffectView`, still present on macOS 26, so the two can be compared without moving the floor. |
+| `panelMaterialVariant` | `.glassRegular` | Read from `OC_DASHBAR_MATERIAL`, a diagnostic hook. `glass-regular` is `NSGlassEffectView` with `.regular` style, which is the supported look. The other five values are there to bisect an opaque panel and are documented in the `Configuration` table above. |
 | `panelMaterialOpacity` | `1.0` | The material view's own alpha, clamped to 0...1. Lower values fade the rim and highlight too. |
 | `panelCornerRadius` | `8.0` | AppKit's own default for glass. The popover's curve is AppKit's and is not readable from code. |
 
-The shell owns the material. The page owns whether the panel is actually
-translucent: `/widget` has to drop its own opaque `html, body` and `.widget`
-backgrounds in oc-dash, and a panel that looks solid with a transparent page
-means the CSS is still painting.
+The floor being 26 is what makes `glass-regular` the only supported value:
+`NSGlassEffectView` is a macOS 26 API, so there is one code path and no runtime
+choice between two materials.
+
+**3. The material has to cover the whole popover, arrow included.**
+`popover.contentSize` does not account for the chevron, so the window is the
+content size grown by 13 points on every edge and the content view is centred
+inside it. AppKit installs its own glass across that whole shape, so a material
+that covered only the content rect left the arrow band showing one glass layer
+and the body showing two: a visible seam at the top.
+
+The fix is to reach our material past the content rect by that same inset, so the
+layer count is equal everywhere across the shape. `Config.popoverChevronInset` is
+13.0, **measured** on a live popover at three content sizes rather than read from
+a header, because it is in none. The material view then re-measures it at run time
+via `measuredChevronInset(in:)`, which asks the popover's own frame view and
+accepts the answer only when the window is an `NSPanel` and all four edges agree,
+so a future macOS moving the band is followed rather than hard-coded. A failed
+read falls back to the constant, which costs a shade seam, not a wrong panel.
+
+**The page owns the rest.** The shell cannot make `/widget` translucent: that page
+has to drop its own opaque `html, body` and `.widget` backgrounds in oc-dash. A
+panel that still looks solid with a transparent page means the CSS is painting.
 
 The window is prepared **after** `show()`, never before. `NSPopover` builds its
 `NSWindow` inside `show()`, so a call made ahead of it finds nothing on the first
@@ -304,12 +444,12 @@ The scheme is the one the page emits, not a name this shell picked. It used to
 answer `ocdashbar://quit`, which the page never emitted, so the quit control did
 nothing until the two sides were compared.
 
-Both verbs are matched on a lowercased scheme and host, and only with an empty
-or "/" path, so `oc-dash://quit/` and `OC-Dash://QUIT` are the same intent while
-`oc-dash://quit/extra` and `oc-dash://start-server/extra` are not. Anything else
-on the `oc-dash` scheme, any scheme outside `http`, `https` and `about`, and the
-retired `ocdashbar` scheme, are cancelled and never navigated. One log line, on
-stderr:
+All three verbs (`quit`, `start-server` and `open`) are matched on a lowercased
+scheme and host, and only with an empty or "/" path, so `oc-dash://quit/` and
+`OC-Dash://QUIT` are the same intent while `oc-dash://quit/extra` and
+`oc-dash://start-server/extra` are not. Anything else on the `oc-dash` scheme,
+any scheme outside `http`, `https` and `about`, and the retired `ocdashbar`
+scheme, are cancelled and never navigated. One log line, on stderr:
 
 ```
 [oc-dashbar] quit intent received, request #1, terminating oc-dashbar
@@ -328,7 +468,8 @@ Sources/oc-dashbar/PanelNavigation.swift    what one navigation means: act, canc
 Sources/oc-dashbar/ServiceRegistry.swift  where oc-dash registers, and whether it is trusted
 Sources/oc-dashbar/StartServer.swift  the login shell PATH, the spawn, and the failure messages
 Sources/oc-dashbar/OfflinePage.swift  the page shown when the dashboard is not answering
-Sources/oc-dashbar/AppDelegate.swift  status item, popover, webview, offline page
+Sources/oc-dashbar/MoneyFigure.swift  the menu bar figure and the one-request-at-a-time gate
+Sources/oc-dashbar/AppDelegate.swift  status item, popover, webview, offline page, money poll
 Tests/oc-dashbar-tests/            config, discovery, material and ordering tests, incl. cross-repo contracts
 Scripts/build-app.sh               the whole "build system"
 Scripts/release.sh                 the release: gate, zip, tag, push, gh release
@@ -337,11 +478,18 @@ Scripts/release-notes.md           the text published as the release notes
 
 ## Rules
 
-- The shell does not poll and does not start, stop or supervise oc-dash. The
-  page owns its refresh. There is no launch agent, no login item, no retry loop.
-  Re-reading the registry once per popover open is a lookup on a user action,
-  not a timer. The start verb is one spawn on one explicit click and then the
-  shell is done with it, which is a spawn and not supervision.
+- The shell does not start, stop or supervise oc-dash. There is no launch agent,
+  no login item, no retry loop and no keep-alive. The start verb is one spawn on
+  one explicit click and then the shell is done with it.
+- The one timer in this app is the menu bar figure's 30 second poll, and it
+  changed what "does not poll" used to mean. It existed for the page's refresh
+  and does not exist for that any more: the page owns its own refresh and always
+  did. What the poll does is read one summary endpoint and write a string onto a
+  button, and it cannot start, stop or restart anything. It is bounded three
+  ways that matter: one request in flight at a time, a 10 second timeout, and no
+  retry, so the worst case is one live request rather than a growing pile of them.
+- Re-reading the registry is a lookup, not supervision, and it is what keeps the
+  figure and the panel honest about which server they are talking to.
 - The only signal this shell ever sends is to the login shell it spawned itself,
   when that shell stops answering a deadline. Nothing here holds a dashboard's
   pid, and there is no code that could signal one. `ServiceRegistry`'s
