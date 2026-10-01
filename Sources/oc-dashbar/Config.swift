@@ -239,11 +239,119 @@ enum Config {
     /// away if the panel fights the webview.
     static let translucentPanel = true
 
-    /// Which system material. `.glass` is the default and the reason the
-    /// deployment floor is macOS 26; `.visualEffect` is the older material,
-    /// still present on 26, so comparing the two costs one edit and no floor
-    /// change.
-    static let panelMaterial: PanelMaterialKind = .glass
+    /// Which system material, and how it is dressed. Six variants, picked with
+    /// `OC_DASHBAR_MATERIAL` at launch, so one build covers every material
+    /// question instead of one build per question.
+    ///
+    /// The first case is what the shell did before this knob existed, and it
+    /// stays the fallback for an unset or unrecognised value. That matters more
+    /// than the other five: a typo in an environment variable has to leave the
+    /// app exactly as it was, not crash it and not silently pick a look nobody
+    /// asked for.
+    ///
+    /// The raw values are the strings the Captain types, so the log line and the
+    /// six commands read the same. They live here rather than in
+    /// `PanelMaterial.swift` because this file holds every knob and no other
+    /// file may hold a literal.
+    enum PanelMaterialVariant: String, CaseIterable {
+        /// `NSGlassEffectView`, `style = .regular`, no tint. The control, and
+        /// byte-for-byte what the shell built before this enum existed.
+        case glassRegular = "glass-regular"
+
+        /// The same glass with `tintColor` set to `.clear` rather than left nil.
+        /// The header describes `tintColor` as "the color the glass effect view
+        /// uses to tint the background and glass effect toward" and documents no
+        /// default, so nil and clear are different requests and only a rendered
+        /// panel says which one AppKit honours.
+        case glassRegularNoTint = "glass-regular-notint"
+
+        /// `NSGlassEffectView`, `style = .clear`. The header calls this "Clear
+        /// glass effect style" and says nothing else about it.
+        case glassClear = "glass-clear"
+
+        /// `NSVisualEffectView`, `material = .popover`, `blendingMode =
+        /// .behindWindow`, which the header documents as "Blend with the area
+        /// behind the window (such as the Desktop or other windows)". This is
+        /// the branch the code's own comment describes and the one that never
+        /// shipped.
+        case visualEffectBehindWindow = "visualEffect-behind"
+
+        /// The same vibrancy with `blendingMode = .withinWindow`, "Blend with
+        /// the area behind the view in the window". The property doc warns "Not
+        /// all materials support both blending modes, so NSVisualEffectView may
+        /// fall back to a more appropriate blending mode as needed", so this can
+        /// render identically to the case above.
+        case visualEffectWithinWindow = "visualEffect-within"
+
+        /// No material view at all. The page sits directly in the container.
+        ///
+        /// This is the one worth running first. `panelMaterialOpacity` cannot
+        /// stand in for it, because the webview is installed inside the material,
+        /// so zeroing the material's `alphaValue` fades the page with it and both
+        /// suspects vanish in the same screenshot. Dropping the view varies one
+        /// thing, and what it answers is whether the webview composites an
+        /// opaque background of its own. The window is still prepared for
+        /// translucency in this variant, so the only difference from
+        /// `glass-regular` is the missing material.
+        case none
+
+        /// Whether this variant puts a material view in the popover. `none` is
+        /// the only one that does not.
+        var buildsMaterial: Bool { self != .none }
+    }
+
+    /// Environment override for `panelMaterialVariant`. Unset means
+    /// `glass-regular`, which is the behaviour that shipped.
+    static let materialEnvironmentKey = "OC_DASHBAR_MATERIAL"
+
+    /// The variant in force, from the process environment.
+    ///
+    /// Read through `resolvedMaterialVariant(environment:)` so a test can hold a
+    /// dictionary instead of a process, the same trick
+    /// `resolvedWidgetURL(environment:)` uses.
+    static let panelMaterialVariant = resolvedMaterialVariant(
+        environment: ProcessInfo.processInfo.environment
+    )
+
+    /// Pure, so every one of the six values and both failure modes are testable
+    /// without setting anything in the ambient environment. An unrecognised
+    /// value falls back to `glass-regular` rather than trapping, and so does an
+    /// unset one: the app is not allowed to fail to start over a typo.
+    static func resolvedMaterialVariant(
+        environment: [String: String]
+    ) -> PanelMaterialVariant {
+        guard let raw = environment[materialEnvironmentKey],
+            let variant = PanelMaterialVariant(rawValue: raw)
+        else { return .glassRegular }
+        return variant
+    }
+
+    /// Whether the popover builds a material view for this variant. `.none`
+    /// does not, and the page goes straight into the container.
+    static var buildsPanelMaterial: Bool {
+        translucentPanel && panelMaterialVariant.buildsMaterial
+    }
+
+    /// The KVC key on `WKWebView` that stops WebKit painting its own background
+    /// behind the page. This is what makes the panel transparent: the page's
+    /// transparent pixels composite with the material and the desktop instead of
+    /// landing on a slab WebKit painted for itself.
+    ///
+    /// It is private AppKit, declared in no header on this SDK, and no public API
+    /// does this job. `AppDelegate.applyWebviewCompositing(to:)` is where the
+    /// write is, and the evidence for each of those claims is written down there.
+    ///
+    /// Unconditional, with no environment variable and no variant. Whether the
+    /// panel ends up transparent is a fact about the SDK and the page's CSS, not
+    /// a per-run preference, so a switch for it would be a switch whose every
+    /// value is the same.
+    static let webviewDrawsBackgroundKey = "drawsBackground"
+
+    /// The Objective-C setter behind `webviewDrawsBackgroundKey`, underscored,
+    /// and the probe for whether the key is still on the runtime at all.
+    /// `setDrawsBackground:` is not implemented, so `responds(to:)` has to be
+    /// asked about this name and not the obvious one.
+    static let webviewDrawsBackgroundSelector = "_setDrawsBackground:"
 
     /// How strongly the material is painted, 0...1. `1.0` leaves the system
     /// material exactly as AppKit draws it. Lower values fade the material, its
@@ -287,27 +395,6 @@ enum Config {
 
     /// `panelMaterialOpacity` after `clampedOpacity(_:)`.
     static var panelMaterialAlpha: CGFloat { clampedOpacity(panelMaterialOpacity) }
-
-    /// The KVC key on `WKWebView` that stops WebKit painting its own background
-    /// behind the page. This is what makes the panel transparent: the page's
-    /// transparent pixels composite with the material and the desktop instead of
-    /// landing on a slab WebKit painted for itself.
-    ///
-    /// It is private AppKit, declared in no header on this SDK, and no public API
-    /// does this job. `AppDelegate.applyWebviewCompositing(to:)` is where the
-    /// write is, and the evidence for each of those claims is written down there.
-    ///
-    /// Unconditional, with no environment variable and no variant. Whether the
-    /// panel ends up transparent is a fact about the SDK and the page's CSS, not
-    /// a per-run preference, so a switch for it would be a switch whose every
-    /// value is the same.
-    static let webviewDrawsBackgroundKey = "drawsBackground"
-
-    /// The Objective-C setter behind `webviewDrawsBackgroundKey`, underscored,
-    /// and the probe for whether the key is still on the runtime at all.
-    /// `setDrawsBackground:` is not implemented, so `responds(to:)` has to be
-    /// asked about this name and not the obvious one.
-    static let webviewDrawsBackgroundSelector = "_setDrawsBackground:"
 
     /// Test hook only, off by default: opens the panel at launch so the webview
     /// can be exercised without a human clicking the status item. Set

@@ -10,10 +10,12 @@ import Testing
 /// can pass.
 @Suite("Panel material")
 struct PanelMaterialTests {
-    @Test("glass is the default and the panel is translucent, which is the choice itself")
+    @Test("glass-regular is the default and the panel is translucent, which is the choice itself")
     func defaultChoice() {
         #expect(Config.translucentPanel)
-        #expect(Config.panelMaterial == .glass)
+        #expect(Config.panelMaterialVariant == .glassRegular)
+        #expect(Config.panelMaterialVariant.materialKind == .glass)
+        #expect(Config.buildsPanelMaterial)
         #expect(Config.panelMaterialOpacity == 1.0)
         #expect(Config.panelMaterialAlpha == 1.0)
     }
@@ -31,7 +33,7 @@ struct PanelMaterialTests {
         for kind in PanelMaterialKind.allCases {
             let page = NSView(frame: NSRect(origin: .zero, size: Config.panelSize))
             let material = PanelMaterialView(
-                kind: kind,
+                variant: Config.PanelMaterialVariant.forKind(kind),
                 frame: page.frame,
                 cornerRadius: Config.panelCornerRadius
             )
@@ -58,6 +60,78 @@ struct PanelMaterialTests {
                 #expect(vibrancy.blendingMode == .behindWindow)
             }
         }
+    }
+
+    /// The whole point of the harness, asserted from a session with no window
+    /// server: every variant builds the class and the style it names, so a
+    /// screenshot that comes back flat is a fact about the rendering and not
+    /// about a switch that went the wrong way.
+    @Test("every variant builds the class, style and tint it names")
+    @MainActor
+    func everyVariantBuilds() throws {
+        for variant in Config.PanelMaterialVariant.allCases {
+            let page = NSView(frame: NSRect(origin: .zero, size: Config.panelSize))
+            let material = PanelMaterialView(
+                variant: variant,
+                frame: page.frame,
+                cornerRadius: Config.panelCornerRadius
+            )
+            material.install(page)
+            switch variant.materialKind {
+            case .glass:
+                let glass = try #require(material.subviews.first as? NSGlassEffectView)
+                #expect(glass.contentView === page)
+                #expect(glass.cornerRadius == Config.panelCornerRadius)
+                switch variant {
+                case .glassRegular:
+                    #expect(glass.style == .regular)
+                    // The control stays untinted. `tintColor` is nullable and
+                    // nothing in the shell assigns it, so this asserts the
+                    // variant did not quietly invent one.
+                    #expect(glass.tintColor == nil)
+                case .glassRegularNoTint:
+                    #expect(glass.style == .regular)
+                    #expect(glass.tintColor == .clear)
+                case .glassClear:
+                    #expect(glass.style == .clear)
+                    #expect(glass.tintColor == nil)
+                default:
+                    Issue.record("\(variant.rawValue) named glass but is not a glass variant")
+                }
+            case .visualEffect:
+                let vibrancy = try #require(material.subviews.first as? NSVisualEffectView)
+                #expect(vibrancy.subviews.first === page)
+                #expect(vibrancy.material == .popover)
+                #expect(
+                    vibrancy.blendingMode
+                        == (variant == .visualEffectWithinWindow ? .withinWindow : .behindWindow)
+                )
+            case nil:
+                // The variant that settles the screenshot. No effect view, and
+                // the page is a direct subview of the wrapper rather than
+                // nested one level down inside a material that is not there.
+                #expect(material.subviews.count == 1)
+                #expect(material.subviews.first === page)
+                #expect(material.subviews.first as? NSGlassEffectView == nil)
+                #expect(material.subviews.first as? NSVisualEffectView == nil)
+            }
+        }
+    }
+
+    /// The two maps between a variant and a class have to stay inverses, or the
+    /// test above and the log line disagree about what is on screen.
+    @Test("a variant names the class it builds, and the class names back a variant")
+    func kindAndVariantAgree() {
+        for variant in Config.PanelMaterialVariant.allCases {
+            guard let kind = variant.materialKind else {
+                #expect(variant == .none)
+                continue
+            }
+            #expect(variant.materialKind == Config.PanelMaterialVariant.forKind(kind).materialKind)
+        }
+        #expect(PanelMaterialKind.allCases.count == 2)
+        #expect(Config.PanelMaterialVariant.forKind(.glass) == .glassRegular)
+        #expect(Config.PanelMaterialVariant.forKind(.visualEffect) == .visualEffectBehindWindow)
     }
 
     @Test("the opacity knob is clamped, so a typo cannot reach a view property")
@@ -124,7 +198,7 @@ struct PanelMaterialTests {
     func materialOverflowsAndThePageDoesNot() throws {
         let page = NSView(frame: NSRect(origin: .zero, size: Config.panelSize))
         let material = PanelMaterialView(
-            kind: Config.panelMaterial,
+            variant: Config.panelMaterialVariant,
             frame: page.frame,
             cornerRadius: Config.panelCornerRadius
         )
@@ -142,7 +216,7 @@ struct PanelMaterialTests {
         #expect(page.frame == container.bounds)
         #expect(page.frame.size == Config.panelSize)
 
-        switch Config.panelMaterial {
+        switch Config.panelMaterialVariant.materialKind {
         case .glass:
             let glass = try #require(material.subviews.first as? NSGlassEffectView)
             // Overflowed, so the chevron band is inside our material rather than
@@ -157,6 +231,12 @@ struct PanelMaterialTests {
             let vibrancy = try #require(material.subviews.first as? NSVisualEffectView)
             #expect(vibrancy.frame == expectedMaterialFrame)
             #expect(page.frame == container.bounds)
+        case nil:
+            // `none` paints nothing, so there is nothing to reach past the content
+            // rect and the page is the container's only subview.
+            #expect(material.subviews.count == 1)
+            #expect(material.subviews.first === page)
+            #expect(page.frame == container.bounds)
         }
     }
 
@@ -165,7 +245,7 @@ struct PanelMaterialTests {
     func relationshipSurvivesAResize() throws {
         let page = NSView(frame: NSRect(origin: .zero, size: Config.panelSize))
         let material = PanelMaterialView(
-            kind: Config.panelMaterial,
+            variant: Config.panelMaterialVariant,
             frame: page.frame,
             cornerRadius: Config.panelCornerRadius
         )

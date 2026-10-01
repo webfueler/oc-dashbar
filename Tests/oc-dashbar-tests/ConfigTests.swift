@@ -78,6 +78,63 @@ struct ConfigTests {
         #expect(Config.panelSize == NSSize(width: 340, height: 420))
     }
 
+    @Test("the material harness has six variants, and the strings are the ones the log prints")
+    func materialVariantList() {
+        #expect(Config.materialEnvironmentKey == "OC_DASHBAR_MATERIAL")
+        // Order as well as contents: this is the order in the handoff table, and
+        // a variant that moved would mean the table and the code disagree.
+        #expect(
+            Config.PanelMaterialVariant.allCases.map(\.rawValue)
+                == [
+                    "glass-regular",
+                    "glass-regular-notint",
+                    "glass-clear",
+                    "visualEffect-behind",
+                    "visualEffect-within",
+                    "none",
+                ]
+        )
+    }
+
+    @Test("each of the six values selects itself, so no variant is reachable only by falling back")
+    func materialVariantSelectsItself() {
+        for variant in Config.PanelMaterialVariant.allCases {
+            #expect(
+                Config.resolvedMaterialVariant(environment: [Config.materialEnvironmentKey: variant.rawValue])
+                    == variant
+            )
+        }
+    }
+
+    @Test("unset, empty, wrong case, padded or nonsense all mean today's behaviour")
+    func materialVariantFallsBack() {
+        // The fallback is the point. An app that refuses to start over a typo in
+        // an environment variable is worse than one that ignores it.
+        #expect(Config.resolvedMaterialVariant(environment: [:]) == .glassRegular)
+        #expect(Config.resolvedMaterialVariant(environment: [Config.materialEnvironmentKey: ""]) == .glassRegular)
+        #expect(Config.resolvedMaterialVariant(environment: [Config.materialEnvironmentKey: "none "]) == .glassRegular)
+        #expect(
+            Config.resolvedMaterialVariant(environment: [Config.materialEnvironmentKey: " glass-clear"])
+                == .glassRegular
+        )
+        // Not a case-insensitive match, on purpose: the six strings are what
+        // gets typed into a shell, and a silent normalisation would make a typo
+        // look like it worked.
+        #expect(
+            Config.resolvedMaterialVariant(environment: [Config.materialEnvironmentKey: "GLASS-CLEAR"])
+                == .glassRegular
+        )
+        #expect(Config.resolvedMaterialVariant(environment: [Config.materialEnvironmentKey: "glass"]) == .glassRegular)
+    }
+
+    @Test("this process has the variable unset, so the default under test is the real default")
+    func materialVariantDefaultHere() {
+        // `swift test` runs with the ambient environment, so this covers the
+        // `ProcessInfo` read that the other cases above deliberately bypass.
+        #expect(Config.panelMaterialVariant == .glassRegular)
+        #expect(Config.buildsPanelMaterial)
+    }
+
     /// The one this panel's transparency now rests on, and the one that fails
     /// loudly rather than quietly.
     ///
@@ -113,5 +170,18 @@ struct ConfigTests {
         AppDelegate.applyWebviewCompositing(to: view)
         let after = view.value(forKey: Config.webviewDrawsBackgroundKey) as? NSNumber
         #expect(after?.boolValue == false)
+    }
+
+    @Test("only none builds no material, and none is the variant that answers the screenshot's question")
+    func onlyNoneSkipsTheMaterial() {
+        for variant in Config.PanelMaterialVariant.allCases {
+            #expect(variant.buildsMaterial == (variant != .none))
+            if variant == .none {
+                #expect(variant.materialKind == nil)
+            }
+            else {
+                #expect(variant.materialKind != nil)
+            }
+        }
     }
 }

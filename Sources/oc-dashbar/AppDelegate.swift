@@ -70,7 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         Log.info(
             "launched: panel \(Int(Config.panelSize.width))x\(Int(Config.panelSize.height))pt, "
                 + "nonActivatingPanel=\(Config.nonActivatingPanel), "
-                + "material=\(Config.translucentPanel ? Config.panelMaterial.rawValue : "none"), "
+                + "material=\(Config.buildsPanelMaterial ? Config.panelMaterialVariant.rawValue : "none"), "
                 + "materialAlpha=\(Config.panelMaterialAlpha), "
                 + "webviewBackground=transparent, "
                 + "url=\(atLaunch.url?.absoluteString ?? "unresolved"), "
@@ -274,12 +274,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
 
         // The material is the bottom of the stack and the page is hosted inside
         // it, so the page's transparent pixels composite over a real system
-        // material. With `Config.translucentPanel` false none of this is built
-        // and the page goes straight into the container, which is AppKit's
-        // opaque popover default.
-        if Config.translucentPanel {
+        // material. Two ways to reach the else branch: `Config.translucentPanel`
+        // is false, which is the old single switch and leaves the popover window
+        // on AppKit's opaque default; or `OC_DASHBAR_MATERIAL=none`, which drops
+        // the material view and nothing else. The window is still prepared for
+        // translucency in the second case, so `none` varies exactly one thing.
+        if Config.buildsPanelMaterial {
             let material = PanelMaterialView(
-                kind: Config.panelMaterial,
+                variant: Config.panelMaterialVariant,
                 frame: container.bounds,
                 cornerRadius: Config.panelCornerRadius
             )
@@ -413,7 +415,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         // preparation, which is the one way `prepared=false` could be innocent.
         Log.info(
             "popover show #\(showCount), size \(Int(popover.contentSize.width))x\(Int(popover.contentSize.height))pt, "
-                + "material=\(Config.translucentPanel ? Config.panelMaterial.rawValue : "none"), "
+                + "material=\(Config.buildsPanelMaterial ? Config.panelMaterialVariant.rawValue : "none"), "
                 + "webviewBackground=transparent, "
                 + "shown=\(popover.isShown), prepared=\(popoverWindowPrepared), "
                 + "windowOpaque=\(String(describing: popover.contentViewController?.view.window?.isOpaque)), "

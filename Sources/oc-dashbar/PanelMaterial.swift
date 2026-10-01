@@ -17,6 +17,35 @@ enum PanelMaterialKind: String, CaseIterable {
     case visualEffect
 }
 
+/// Which class a variant builds, and the reverse, so the harness knob and the
+/// two material classes stay in one readable relationship instead of a switch
+/// in `AppDelegate` and a second switch here.
+extension Config.PanelMaterialVariant {
+    /// The class this variant paints. `nil` for `none`, which paints nothing,
+    /// and that is the whole difference: there is no third class to fall back
+    /// to and no placeholder view to stand in for a missing one.
+    var materialKind: PanelMaterialKind? {
+        switch self {
+        case .glassRegular, .glassRegularNoTint, .glassClear:
+            return .glass
+        case .visualEffectBehindWindow, .visualEffectWithinWindow:
+            return .visualEffect
+        case .none:
+            return nil
+        }
+    }
+
+    /// The variant a class was reached through, for the test that walks both
+    /// classes. Each class has more than one variant, so this picks the plainest
+    /// one and the test asserts what that plainest one does.
+    static func forKind(_ kind: PanelMaterialKind) -> Config.PanelMaterialVariant {
+        switch kind {
+        case .glass: return .glassRegular
+        case .visualEffect: return .visualEffectBehindWindow
+        }
+    }
+}
+
 /// A view that paints one system material and hosts the page inside it.
 ///
 /// Glass is why this class exists rather than a raw `NSGlassEffectView` dropped
@@ -29,6 +58,12 @@ final class PanelMaterialView: NSView {
     private enum Effect {
         case glass(NSGlassEffectView)
         case visualEffect(NSVisualEffectView)
+        /// Nothing painted. `AppDelegate` never asks for this: it puts the page
+        /// straight into the container instead, so the webview is not nested one
+        /// level deeper for no reason. The case is here so this init has no
+        /// unreachable branch, and a caller that does ask gets a wrapper with no
+        /// material rather than a crash.
+        case none
     }
 
     private let effect: Effect
@@ -42,30 +77,15 @@ final class PanelMaterialView: NSView {
     /// when there is one.
     private var chevronInset: CGFloat
 
-    init(kind: PanelMaterialKind, frame: NSRect, cornerRadius: CGFloat) {
+    init(variant: Config.PanelMaterialVariant, frame: NSRect, cornerRadius: CGFloat) {
         self.chevronInset = Config.popoverChevronInset
-        switch kind {
+        switch variant.materialKind {
         case .glass:
-            self.effect = .glass(Self.makeGlass(frame: frame, cornerRadius: cornerRadius))
+            self.effect = .glass(Self.makeGlass(frame: frame, cornerRadius: cornerRadius, variant: variant))
         case .visualEffect:
-            let vibrancy = NSVisualEffectView(frame: frame)
-            // `.popover` is documented in NSVisualEffectView.h as "the material
-            // used in the background of NSPopover windows", which is what this
-            // is. It also steps around AppKit's default, which is
-            // `.appearanceBased`, deprecated in 10.14 with the note "use a
-            // specific semantic material instead".
-            //
-            // `.behindWindow` is documented as "blend with the area behind the
-            // window (such as the Desktop or other windows)", and is also
-            // AppKit's default here. It is named rather than inherited because
-            // it is the load-bearing half: the popover window is made
-            // non-opaque so there is a desktop to blend with.
-            //
-            // `state` is left alone. `.active` is AppKit's default and is what
-            // we want: the panel should not grey out when it loses focus.
-            vibrancy.material = .popover
-            vibrancy.blendingMode = .behindWindow
-            self.effect = .visualEffect(vibrancy)
+            self.effect = .visualEffect(Self.makeVibrancy(frame: frame, variant: variant))
+        case nil:
+            self.effect = .none
         }
         super.init(frame: frame)
         switch effect {
@@ -73,6 +93,8 @@ final class PanelMaterialView: NSView {
             addSubview(glass)
         case .visualEffect(let vibrancy):
             addSubview(vibrancy)
+        case .none:
+            break
         }
     }
 
@@ -160,6 +182,10 @@ final class PanelMaterialView: NSView {
             guard let content = vibrancy.subviews.first else { return }
             content.frame = contentFrame
             content.autoresizingMask = [.width, .height]
+        case .none:
+            // Nothing painted, so nothing to reach past the content rect with.
+            // The page stays where the container put it.
+            break
         }
     }
 
@@ -167,14 +193,70 @@ final class PanelMaterialView: NSView {
     /// the call above is unguarded on purpose: with the floor at macOS 26 this
     /// compiles, and lowering `platforms:` turns this line into a build error
     /// rather than into a runtime fallback to a material nobody logged.
+    ///
+    /// The style and the tint are read off the variant in here rather than in
+    /// the init's signature, so nothing above this line needs an availability
+    /// annotation of its own. `NSGlassEffectView.Style` as an init parameter
+    /// would need one, and a second `@available` to carry a style is not worth
+    /// it.
     @available(macOS 26.0, *)
-    private static func makeGlass(frame: NSRect, cornerRadius: CGFloat) -> NSGlassEffectView {
+    private static func makeGlass(
+        frame: NSRect,
+        cornerRadius: CGFloat,
+        variant: Config.PanelMaterialVariant
+    ) -> NSGlassEffectView {
         let glass = NSGlassEffectView(frame: frame)
         glass.cornerRadius = cornerRadius
-        // `.regular` is AppKit's default and is assigned so the choice is on the
-        // record rather than implied.
-        glass.style = .regular
+        switch variant {
+        case .glassRegular:
+            // `.regular` is AppKit's default and is assigned so the choice is on
+            // the record rather than implied.
+            glass.style = .regular
+        case .glassRegularNoTint:
+            glass.style = .regular
+            // The one line this whole variant exists for. `tintColor` is
+            // nullable and the header documents no default, so leaving it nil is
+            // not the same request as setting it to clear. Nothing else about
+            // the view changes, which is what makes the screenshot worth taking.
+            glass.tintColor = .clear
+        case .glassClear:
+            glass.style = .clear
+        case .visualEffectBehindWindow, .visualEffectWithinWindow, .none:
+            // Not reachable: the switch above builds glass only for the three
+            // glass variants. `.regular` so this switch stays total.
+            glass.style = .regular
+        }
         return glass
+    }
+
+    /// The material that predates Liquid Glass. The variant only splits it on
+    /// `blendingMode`, so that is the only thing this switch sets.
+    private static func makeVibrancy(
+        frame: NSRect,
+        variant: Config.PanelMaterialVariant
+    ) -> NSVisualEffectView {
+        let vibrancy = NSVisualEffectView(frame: frame)
+        // `.popover` is documented in NSVisualEffectView.h as "the material
+        // used in the background of NSPopover windows", which is what this
+        // is. It also steps around AppKit's default, which is
+        // `.appearanceBased`, deprecated in 10.14 with the note "use a
+        // specific semantic material instead".
+        //
+        // `state` is left alone. `.active` is AppKit's default and is what we
+        // want: the panel should not grey out when it loses focus.
+        vibrancy.material = .popover
+        // The header warns "Not all materials support both blending modes, so
+        // NSVisualEffectView may fall back to a more appropriate blending mode
+        // as needed", so `.withinWindow` on `.popover` may render as
+        // `.behindWindow`. That would look identical to the variant above, and
+        // it would be AppKit deciding rather than the harness failing.
+        switch variant {
+        case .visualEffectWithinWindow:
+            vibrancy.blendingMode = .withinWindow
+        case .visualEffectBehindWindow, .glassRegular, .glassRegularNoTint, .glassClear, .none:
+            vibrancy.blendingMode = .behindWindow
+        }
+        return vibrancy
     }
 
     /// Puts the page inside the material, which is the one place the two
@@ -187,6 +269,8 @@ final class PanelMaterialView: NSView {
             glass.contentView = content
         case .visualEffect(let vibrancy):
             vibrancy.addSubview(content)
+        case .none:
+            addSubview(content)
         }
         layoutMaterial()
     }
