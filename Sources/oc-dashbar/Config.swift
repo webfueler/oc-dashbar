@@ -58,6 +58,18 @@ enum Config {
     /// The URL the start control emits: `<quitScheme>://<startHost>`.
     static var startURLString: String { "\(quitScheme)://\(startHost)" }
 
+    /// The third verb, on the same scheme, and the first one that carries data.
+    /// The widget's "open in browser" control navigates to
+    /// `oc-dash://open?url=<percent-encoded http or https URL>` and this shell
+    /// hands that URL to the system instead of loading it.
+    static let openHost = "open"
+
+    /// The URL the open control emits with no target, which is what the offline
+    /// page and any test that does not care about the target can write. Written
+    /// from `quitScheme` on purpose, like the two above: it is the same scheme
+    /// so the two repositories reconcile on one string.
+    static var openURLString: String { "\(quitScheme)://\(openHost)" }
+
     /// The binaries the start verb looks for on the login shell's PATH, in
     /// this order, and stops at the first one found.
     ///
@@ -154,6 +166,35 @@ enum Config {
     /// `about` is in here because WebKit uses it for its own documents and
     /// cancelling one would blank the panel instead of protecting it.
     static let navigableSchemes: Set<String> = ["http", "https", "about"]
+
+    /// The query key carrying an open target. A named constant rather than a
+    /// literal so the page and this shell reconcile on one line, same reason as
+    /// the two hosts above.
+    static let openTargetQueryKey = "url"
+
+    /// Schemes a target may carry. `http` and `https` only, and nothing that can
+    /// execute: `file:` reads the disk, `javascript:` runs in whatever handles it,
+    /// `data:` is a document the shell never wrote, and any other custom scheme
+    /// is a hand-off to a handler this shell does not know exists.
+    static let openTargetSchemes: Set<String> = ["http", "https"]
+
+    /// Hosts a target may name. Loopback only, and checked on the parsed
+    /// `URL.host` rather than by substring, so `127.0.0.1.example.com` and
+    /// `http://127.0.0.1@example.com` are both refused by the same comparison
+    /// that admits `127.0.0.1`.
+    ///
+    /// The panel is served by oc-dash on loopback. A page that can name any host
+    /// it likes can turn a menu bar click into a request to a server the Captain
+    /// does not control, from a browser he is logged in to. Loopback-only means
+    /// the worst a compromised widget page can do is open a tab pointing at a
+    /// process on this machine.
+    ///
+    /// An exact match, so every other spelling of a loopback address is refused
+    /// rather than recognised: `127.0.0.1.`, `0177.0.0.1`, `2130706433` and the
+    /// expanded `[0:0:0:0:0:0:0:1]` all name loopback too, and all of them fail
+    /// here. A miss costs a dead click; a hit on the wrong side costs the Captain
+    /// his browser.
+    static let openTargetHosts: Set<String> = ["127.0.0.1", "localhost", "::1"]
 
     /// Panel size in points. The /widget page in oc-dash is designed for
     /// 340x420. If that page ever needs a different number, its number wins

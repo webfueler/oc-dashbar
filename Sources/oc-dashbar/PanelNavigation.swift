@@ -2,14 +2,18 @@ import Foundation
 
 /// What one navigation means to this shell, decided without touching anything.
 ///
-/// The page cannot terminate the app and cannot start a process, so the
-/// widget's two controls emit their intent as navigations to a custom scheme
-/// and this is the other end of that handoff. Two verbs and a list of things
-/// to refuse, and the rule behind both verbs is the same narrow one: this
-/// shell acts on itself and on nothing else. oc-dash is not supervised by this
-/// shell and never was, so a quit here terminates this process and leaves the
-/// dashboard on 4021 exactly as it found it, and a start here spawns one
-/// process and never looks at it again.
+/// The page cannot terminate the app, cannot start a process and cannot open a
+/// browser window, so the widget's controls emit their intent as navigations to
+/// a custom scheme and this is the other end of that handoff. Three verbs and a
+/// list of things to refuse, and the rule behind all three is the same narrow
+/// one: this shell acts on itself and on nothing else. oc-dash is not
+/// supervised by this shell and never was, so a quit here terminates this
+/// process and leaves the dashboard on 4021 exactly as it found it, and a start
+/// here spawns one process and never looks at it again.
+///
+/// The open verb is the first one that takes a value out of the page and acts
+/// on it, which is why its target is validated rather than matched. See
+/// `openTarget(in:)`.
 ///
 /// The decision is a pure function of `(url, quitRequestsHandled,
 /// startRequestsHandled)` because that is the only shape a test can drive from
@@ -39,6 +43,15 @@ enum PanelNavigation {
         /// owns the arm that makes a double click a confirmation rather than
         /// two starts, and a second click is a second explicit ask.
         case startServer(request: Int)
+
+        /// The page asked the app to open a URL in the user's browser. Cancel
+        /// the load, then hand the URL to the system.
+        ///
+        /// Carries the validated `URL` rather than a count. Unlike the other two
+        /// verbs nothing here is deduplicated, and the log line that names the
+        /// URL is worth more than an ordinal that invites somebody to assume the
+        /// shell is counting opens for a reason.
+        case openInBrowser(URL)
 
         /// Our own scheme, but not a verb we answer, so it is a URL the page
         /// should not have produced. Cancelled. Never navigated.
@@ -70,6 +83,9 @@ enum PanelNavigation {
             if isVerbURL(url, host: Config.startHost) {
                 return .startServer(request: startRequestsHandled + 1)
             }
+            if isVerbURL(url, host: Config.openHost) {
+                return openTarget(in: url).map(Decision.openInBrowser) ?? .cancelUnknownHost(url.absoluteString)
+            }
             return .cancelUnknownHost(url.absoluteString)
         }
         if Config.navigableSchemes.contains(scheme) {
@@ -87,12 +103,12 @@ enum PanelNavigation {
     /// `URL` keeps the case the page wrote, and both are case-insensitive per
     /// RFC 3986.
     ///
-    /// The path is constrained to empty or "/" for both verbs, so
+    /// The path is constrained to empty or "/" for all three verbs, so
     /// `oc-dash://quit/extra` and `oc-dash://start-server/extra` are not ours.
     /// One host means one action, and a wider match would let a typo in the
     /// page's URL construction become a way to terminate the app or a second
-    /// way to start it. A query string is ignored, because neither intent
-    /// carries data.
+    /// way to start it. The query is not part of the match; the open verb reads
+    /// its target out of the query afterwards, in `openTarget(in:)`.
     ///
     /// The quit half of this is worth saying because it is the one that can
     /// end the process: relaxing this to a host-only match would turn
@@ -100,5 +116,37 @@ enum PanelNavigation {
     private static func isVerbURL(_ url: URL, host: String) -> Bool {
         guard url.host?.lowercased() == host else { return false }
         return url.path.isEmpty || url.path == "/"
+    }
+
+    /// The target the page asked to open, or nil when it named nothing this
+    /// shell will hand to the system.
+    ///
+    /// Decoded by `URLComponents.queryItems`, which percent-decodes the key and
+    /// the value and splits on `&` and `=` itself, so a target that contains
+    /// either of those is not cut in half and a repeated `url` key is not
+    /// confused with the value.
+    ///
+    /// Decoded exactly once. `URL(string:)` canonicalises an escaped string rather
+    /// than expanding it, so `%2525` stays `%2525` through the parse below and
+    /// nothing in this path decodes a second time. Verified rather than assumed,
+    /// because a second decode is the kind of thing a future edit to the parse
+    /// would reintroduce without looking like a change to validation.
+    ///
+    /// The scheme and host checks are on the parsed `URL`, not on the string.
+    /// `URL.host` is the authority after `@` and before the path, which is the
+    /// only reading that cannot be talked around by a string that merely
+    /// contains a loopback address.
+    private static func openTarget(in url: URL) -> URL? {
+        guard
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+            let item = components.queryItems?.first(where: { $0.name == Config.openTargetQueryKey }),
+            let value = item.value,
+            let target = URL(string: value),
+            let scheme = target.scheme?.lowercased(),
+            let host = target.host?.lowercased(),
+            Config.openTargetSchemes.contains(scheme),
+            Config.openTargetHosts.contains(host)
+        else { return nil }
+        return target
     }
 }

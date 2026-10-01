@@ -46,6 +46,27 @@ struct ConfigTests {
         #expect(parsed?.path == "")
     }
 
+    @Test("the open URL is oc-dash://open, and its allowlist is http and https on loopback")
+    func openURL() {
+        #expect(Config.openHost == "open")
+        #expect(Config.openURLString == "oc-dash://open")
+        let parsed = URL(string: Config.openURLString)
+        #expect(parsed?.scheme == Config.quitScheme)
+        #expect(parsed?.host == Config.openHost)
+        // The page's URL has no path, so the path constraint in PanelNavigation
+        // has to accept the empty case or the real URL would not open.
+        #expect(parsed?.path == "")
+        #expect(Config.openTargetQueryKey == "url")
+        #expect(Config.openTargetSchemes == ["http", "https"])
+        #expect(Config.openTargetHosts == ["127.0.0.1", "localhost", "::1"])
+        // Two different rules, deliberately. `navigableSchemes` lets the webview
+        // reach any http or https host on any machine, which is fine for a page
+        // load inside the panel and is not fine for a hand-off to the Captain's
+        // real browser. This assertion fails if either set is ever made to reuse
+        // the other, which is the mistake this pair is easiest to make.
+        #expect(Config.openTargetSchemes != Config.navigableSchemes)
+    }
+
     @Test("http, https and about navigate; nothing else does")
     func navigableSchemes() {
         #expect(Config.navigableSchemes == ["http", "https", "about"])

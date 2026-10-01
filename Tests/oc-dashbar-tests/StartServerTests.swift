@@ -421,4 +421,52 @@ struct StartServerTests {
         #expect(delegate.startRequestsAnswered == 0)
         #expect(delegate.quitRequestsAnswered == 0)
     }
+
+    /// The open arm, end to end and with no browser in sight: hostile input is
+    /// refused by the decision and so never reaches the opener, and a loopback
+    /// target reaches it as a decoded URL.
+    ///
+    /// The refused cases are driven through `PanelNavigation.decide` rather than
+    /// written out as `.cancelUnknownHost`, which is what makes this the test
+    /// that would fail if the validation were deleted. Hard-coded refusals would
+    /// still pass against an implementation that validated nothing.
+    @Test("the open arm hands a validated loopback URL to the opener and nothing else")
+    @MainActor
+    func delegateOpensOnlyValidatedLoopbackTargets() {
+        let delegate = AppDelegate()
+        var opened: [URL] = []
+        delegate.openAction = { opened.append($0) }
+        delegate.startAction = { _ in Issue.record("an open must not start anything") }
+        delegate.termination = { Issue.record("an open must not terminate the app") }
+
+        func act(onNavigation string: String) {
+            delegate.act(
+                on: PanelNavigation.decide(for: URL(string: string), quitRequestsHandled: 0, startRequestsHandled: 0)
+            )
+        }
+
+        for hostile in [
+            "oc-dash://open",
+            "oc-dash://open?url=file%3A%2F%2F%2Fetc%2Fpasswd",
+            // Admitted by the host check and refused by the scheme check, so
+            // this one is here to catch the scheme list being dropped.
+            "oc-dash://open?url=file%3A%2F%2F127.0.0.1%2Fetc%2Fpasswd",
+            "oc-dash://open?url=javascript%3Aalert(1)",
+            "oc-dash://open?url=data%3Atext%2Fhtml%2Cx",
+            "oc-dash://open?url=https%3A%2F%2Fexample.com%2F",
+            "oc-dash://open?url=ftp%3A%2F%2Fexample.com%2Fx",
+            "oc-dash://open?url=http%3A%2F%2F127.0.0.1.example.com%2F",
+            "oc-dash://open?url=http%3A%2F%2F127.0.0.1%ZZ%2F",
+        ] {
+            act(onNavigation: hostile)
+        }
+        #expect(opened.isEmpty, "a refused open must not reach the system opener")
+
+        act(onNavigation: "oc-dash://open?url=http%3A%2F%2F127.0.0.1%3A4021%2F")
+        #expect(opened == [URL(string: "http://127.0.0.1:4021/")!])
+        // An open is not a quit and not a start, and it does not change either
+        // counter. The two verbs are still two presses and one spawn.
+        #expect(delegate.quitRequestsAnswered == 0)
+        #expect(delegate.startRequestsAnswered == 0)
+    }
 }

@@ -36,6 +36,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     var startAction: (Int) -> Void = { request in
         DispatchQueue.global(qos: .userInitiated).async { StartServer.start(request: request) }
     }
+
+    /// What an open does, behind a closure for the same reason as the two above:
+    /// production behaviour is the call, and a test can substitute a recorder so
+    /// the whole switch runs without a browser appearing on screen.
+    var openAction: (URL) -> Void = { url in NSWorkspace.shared.open(url) }
+
     /// The popover window the preparation has already run on. Weak because the
     /// popover owns the panel, and identity rather than a Bool because AppKit
     /// does not promise to reuse it. See `PopoverWindowPreparation`.
@@ -285,10 +291,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         }
     }
 
-    // MARK: - Quit and start
+    // MARK: - Quit, start and open
 
-    /// The other end of the widget's two controls. The page navigates to
-    /// `Config.quitURLString` or `Config.startURLString`; each decision is
+    /// The other end of the widget's controls. The page navigates to
+    /// `Config.quitURLString`, `Config.startURLString` or
+    /// `Config.openURLString` with a target in its query; each decision is
     /// cancelled so WebKit never tries to load a scheme no handler owns, and
     /// the action happens afterwards.
     ///
@@ -319,7 +326,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         case .cancelUnknownHost(let url):
             // Logged rather than silent. A page emitting this has a bug or an
             // out-of-date shell half, and either way it is worth seeing.
-            Log.info("cancelled \(url): our scheme, but not \(Config.quitHost) or \(Config.startHost)")
+            Log.info(
+                "cancelled \(url): our scheme, but not \(Config.quitHost), \(Config.startHost) or \(Config.openHost)"
+            )
             decisionHandler(.cancel)
         case .cancelForeignScheme(let scheme):
             Log.info("cancelled \(scheme): a scheme this panel does not load")
@@ -330,6 +339,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         case .startServer(let request):
             decisionHandler(.cancel)
             act(on: .startServer(request: request))
+        case .openInBrowser(let url):
+            decisionHandler(.cancel)
+            act(on: .openInBrowser(url))
         }
     }
 
@@ -358,6 +370,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
             // stays up and the page owns its own feedback, which is why the
             // page half has a sent state at all.
             startAction(request)
+        case .openInBrowser(let url):
+            Log.info("open intent received: \(url.absoluteString)")
+            openAction(url)
         }
     }
 
