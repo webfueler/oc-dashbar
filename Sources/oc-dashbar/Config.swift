@@ -210,6 +210,21 @@ enum Config {
     /// does not have to be dragged back after every relaunch.
     static let statusItemAutosaveName = "oc-dashbar"
 
+    /// How wide the status item is allowed to be.
+    ///
+    /// Variable rather than square, and this is load-bearing for the menu bar
+    /// figure. `NSStatusItem.length` is the width of the slot, and content that
+    /// does not fit inside it is clipped: under `squareLength` the button is one
+    /// icon wide, so a title of `$1,234,567.90` is cut off rather than shown
+    /// beside the icon. `variableLength` is the documented answer for an item
+    /// with both an image and a title, and it is also what the item wants with
+    /// no title at all, since the image is what sets the width then.
+    ///
+    /// Assigned after `statusItemAutosaveName`, on purpose. The autosave restores
+    /// the saved geometry of the slot, and a length written before it would be
+    /// overwritten by the value from the last launch.
+    static let statusItemLength = NSStatusItem.variableLength
+
     /// Flip to true to make the popover a non-activating panel, so clicking
     /// into the widget does not pull focus out of whatever is being typed in.
     /// Left false: the focus behaviour could not be verified headlessly.
@@ -420,6 +435,107 @@ enum Config {
         else { return nil }
         components.path = widgetPath
         components.query = nil
+        components.fragment = nil
+        return components.url
+    }
+
+    // MARK: - Today's money in the menu bar
+
+    /// How often the shell asks the server what today cost. 30 seconds, which is
+    /// the interval the /widget page refreshes on, so the menu bar figure and
+    /// the panel move on the same clock rather than drifting a minute apart.
+    ///
+    /// A poll and not a push, because the shell has no channel to be pushed on:
+    /// it is not a websocket client and oc-dash is not offering to become one.
+    static let moneyPollInterval: TimeInterval = 30
+
+    /// How long one request may take before URLSession gives up on it.
+    ///
+    /// This is what makes the no-overlap rule recover rather than stick. The
+    /// gate alone means a hung request parks every later tick, so a figure that
+    /// froze at launch would never come back on its own. Bounded below the poll
+    /// interval on purpose: at most one attempt in flight, and the next tick is
+    /// still a fresh attempt rather than the tail of the last one.
+    static let moneyRequestTimeout: TimeInterval = 10
+
+    /// The summary route, on whichever server the panel is reading.
+    ///
+    /// A path and not part of a URL string, for the same reason `widgetPath` is:
+    /// the server is named by the registry or by the override, and only the path
+    /// is the shell's business.
+    static let summaryPath = "/api/summary"
+
+    /// The two query keys and their values, one constant each.
+    ///
+    /// `range=today` is the window. `context=none` is required rather than
+    /// cosmetic: on the server it skips the second stats call that only feeds
+    /// the chart's muted context days, and this shell renders no chart.
+    ///
+    /// `project` is deliberately not sent. The handler reads three parameters and
+    /// an absent `project` is the documented way to ask for no per-project work.
+    static let summaryRangeKey = "range"
+    static let summaryRangeToday = "today"
+    static let summaryContextKey = "context"
+    static let summaryContextNone = "none"
+
+    /// The title that means "no figure".
+    ///
+    /// Empty, and empty for a reason: the Captain's rule is hide, and a dash, a
+    /// zero, a question mark or the last known value are all a figure of some
+    /// kind. An empty title is the one thing in a menu bar that is unambiguously
+    /// nothing.
+    static let emptyMoneyTitle = ""
+
+    /// Schemes the money request may speak.
+    ///
+    /// Its own set rather than a reuse of `navigableSchemes` or
+    /// `openTargetSchemes`, because both of those answer a different question.
+    /// One is what a page in the panel may navigate to, the other is what this
+    /// shell may hand to the Captain's real browser. This one is what a background
+    /// request of our own may be sent to, and `about` is not on it: there is no
+    /// server behind `about`, so a widget URL carrying it is a mistake rather
+    /// than a host.
+    static let moneyRequestSchemes: Set<String> = ["http", "https"]
+
+    /// The query string the money request sends, written from the constants
+    /// above rather than as a literal, so a value that moved is visible in the
+    /// URL instead of hiding in a string.
+    static var summaryQuery: String {
+        "\(summaryRangeKey)=\(summaryRangeToday)&\(summaryContextKey)=\(summaryContextNone)"
+    }
+
+    /// The summary URL for the server the panel is reading, derived from the URL
+    /// the panel itself resolved rather than from a second port literal.
+    ///
+    /// This is the load-bearing derivation. The panel's URL is decided by
+    /// `resolveWidgetURL` with its three-step precedence, and the figure has to
+    /// ask the same server the panel just showed, or a menu bar reading $7.56
+    /// beside a panel reading $0.00 is indistinguishable from a bug. So the
+    /// widget URL arrives as a parameter, its path is replaced with
+    /// `summaryPath`, and its query and fragment are dropped. A resolved URL
+    /// carrying a path, a query or a fragment therefore still yields the same
+    /// summary URL rather than nesting them, which is what `widgetURL(base:)`
+    /// does for the other direction.
+    ///
+    /// nil means there is no server to ask, and the caller hides. That is only
+    /// reachable through a set-but-unusable `OC_DASHBAR_URL`, the same state in
+    /// which the panel shows its offline page, and the two hiding together is
+    /// the correct answer.
+    ///
+    /// A non-`http`/`https` scheme is refused rather than requested. `file:`
+    /// would turn a background figure into a disk read, and this shell's own
+    /// `oc-dash:` verbs are not a server at all. A host is not checked: if the
+    /// override points the panel at a machine that is not this one, the figure
+    /// follows it there rather than quietly reporting a different server's
+    /// spending, which is the disagreement the derivation exists to prevent.
+    static func summaryURL(widgetBase widget: URL?) -> URL? {
+        guard let widget,
+            var components = URLComponents(url: widget, resolvingAgainstBaseURL: false),
+            let scheme = components.scheme,
+            moneyRequestSchemes.contains(scheme.lowercased())
+        else { return nil }
+        components.path = summaryPath
+        components.query = summaryQuery
         components.fragment = nil
         return components.url
     }

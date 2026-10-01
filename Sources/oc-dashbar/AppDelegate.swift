@@ -79,13 +79,158 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
             // Deferred so the status item exists before the panel anchors to it.
             DispatchQueue.main.async { [weak self] in self?.presentPopover() }
         }
+        // After the log line and after the status item, which is the order that
+        // matters: the item is already there to receive a title, and the line
+        // naming which server the panel reads is printed before the first request
+        // goes out to it. The request is not blocking, so nothing here delays
+        // the item appearing on a cold launch with the server down.
+        startMoneyPoll()
+    }
+
+    // MARK: - Today's money in the menu bar
+
+    /// The title the button is showing, or empty when there is no figure.
+    /// Tracked beside the button write so a test can read the decision without a
+    /// menu bar, the same reason `quitRequestsAnswered` and
+    /// `popoverWindowPrepared` exist.
+    private(set) var moneyTitle: String = Config.emptyMoneyTitle
+
+    /// Ticks admitted and ticks dropped, for the log and for the test that proves
+    /// the no-overlap rule on the real tick rather than on a copy of it.
+    var moneyAdmittedTicks: Int { moneyGate.admittedTicks }
+    var moneyTicksSkipped: Int { moneyGate.skippedTicks }
+
+    /// At most one request in flight. See `MoneyFetchGate`.
+    private let moneyGate = MoneyFetchGate()
+
+    /// The server the figure asks, resolved the same way the panel resolves its
+    /// URL and behind a closure for the same reason `termination` is: production
+    /// behaviour is the real resolution, and a test substitutes a name so it
+    /// does not read the Captain's registry file to find out where to point.
+    var moneyServerURL: () -> URL? = {
+        Config.resolvedWidgetURL(
+            environment: ProcessInfo.processInfo.environment,
+            registryText: ServiceRegistry.currentText()
+        )
+    }
+
+    /// The network, behind a closure for the same reason. The production value
+    /// is a URLSession request; a test substitutes a recorder, which is the only
+    /// way the no-overlap rule can be proven without a hung server to hang.
+    ///
+    /// `done` is called on the main thread, exactly once, whatever the outcome.
+    var moneyFetch: (URL, @escaping (MoneyFigure.Title) -> Void) -> Void = { url, done in
+        AppDelegate.performMoneyFetch(url: url, done: done)
+    }
+
+    /// One URLSession request, off the main thread and answering on it.
+    ///
+    /// The status code and the transport error are separated here so the
+    /// decision itself stays a pure function of values. A response that is not
+    /// an `HTTPURLResponse` has no status code, and with no error either that
+    /// lands on "no response" and hides, which is right for a scheme that had no
+    /// HTTP in it.
+    private static func performMoneyFetch(url: URL, done: @escaping (MoneyFigure.Title) -> Void) {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = Config.moneyRequestTimeout
+        // One request per tick, so the response is the one this tick asked for
+        // and not a cached copy of an answer from half an hour ago.
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            let statusCode = (response as? HTTPURLResponse)?.statusCode
+            let failure = error.map { ($0 as NSError) }
+                .map { "\($0.localizedDescription) [\($0.domain) \($0.code)]" }
+            let title = MoneyFigure.title(body: data, statusCode: statusCode, transportFailure: failure)
+            DispatchQueue.main.async { done(title) }
+        }.resume()
+    }
+
+    /// Starts the poll, and fires the first tick now rather than in 30 seconds.
+    ///
+    /// At launch, not on the first panel open, because the figure is only useful
+    /// while the panel is closed. The immediate first tick is the other half of
+    /// that: a menu bar that stays empty for half a minute after every launch
+    /// reads as a broken app rather than as a figure that has not arrived yet.
+    private func startMoneyPoll() {
+        let timer = Timer.scheduledTimer(
+            withTimeInterval: Config.moneyPollInterval,
+            repeats: true
+        ) { [weak self] _ in self?.moneyTick() }
+        // `.common` as well as `.default`, so the figure keeps arriving while a
+        // menu is down. A timer left in `.default` alone is held back by menu
+        // tracking, and a 30 second figure that stops while a menu is open looks
+        // like a figure that stopped.
+        RunLoop.main.add(timer, forMode: .common)
+        // The run loop holds the timer for the life of the process and nothing
+        // here needs to stop it: every way out of this app is `NSApp.terminate`.
+        moneyTick()
+    }
+
+    /// One tick. At most one request, and a tick during one is skipped rather
+    /// than queued, which is what keeps a slow server from becoming a pile of
+    /// requests.
+    ///
+    /// The server is resolved per tick rather than once at launch, for the reason
+    /// `loadWidgetForThisOpen` re-resolves per open: a dashboard can be started,
+    /// stopped or moved to another port while this sits in the menu bar, and
+    /// neither the panel nor the figure should be frozen at what was true when
+    /// the process launched. It costs one 90 byte file read per 30 seconds.
+    func moneyTick() {
+        guard moneyGate.begin() else {
+            Log.info("today money: skipped a tick, the last request has not answered yet")
+            return
+        }
+        guard let url = Config.summaryURL(widgetBase: moneyServerURL()) else {
+            // No server to ask. The panel would be showing its offline page in
+            // the same state, so the two hiding together is the honest answer.
+            moneyRequestFinished(.hide(.requestFailed("no server: the widget URL did not resolve")))
+            return
+        }
+        Log.info("today money: GET \(url.absoluteString)")
+        moneyFetch(url) { [weak self] title in self?.moneyRequestFinished(title) }
+    }
+
+    /// A request answered, one way or the other.
+    ///
+    /// The gate is released first, so a failed request cannot wedge the poll, and
+    /// then the title is written: the string verbatim, or nothing at all. One
+    /// entry point for every outcome is what makes "one request per tick, ever"
+    /// hold without a success path and a failure path that can drift apart.
+    private func moneyRequestFinished(_ title: MoneyFigure.Title) {
+        moneyGate.finish()
+        switch title {
+        case .show(let text):
+            moneyTitle = text
+            statusItem?.button?.title = text
+            Log.info("today money: title is now \(text), \(pollCounts)")
+        case .hide(let reason):
+            // Whatever it was showing goes, including a figure from thirty
+            // seconds ago. A stale number is a lie with a timestamp on it.
+            moneyTitle = Config.emptyMoneyTitle
+            statusItem?.button?.title = Config.emptyMoneyTitle
+            Log.info("today money: hidden, \(reason.logText), \(pollCounts)")
+        }
+    }
+
+    /// The two counters, on every line that changes or refuses to change the
+    /// title, so a silent menu bar can be told apart from a busy one.
+    private var pollCounts: String {
+        "admitted=\(moneyAdmittedTicks) skipped=\(moneyTicksSkipped)"
     }
 
     // MARK: - Status item
 
     private func installStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        // The length, not the square length, so the money figure has room to
+        // sit next to the icon rather than being clipped to nothing. See
+        // `Config.statusItemLength`. The image is still there, and with an
+        // empty title the variable length collapses to the image's own width,
+        // so the control looks the same as it did before this mission.
+        let item = NSStatusBar.system.statusItem(withLength: Config.statusItemLength)
         item.autosaveName = Config.statusItemAutosaveName
+        // The icon sits on the button, and the money figure is its title. An
+        // NSStatusBarButton lays an image and a title out side by side, so the
+        // figure lands to the right of the icon without any positioning here.
         if let button = item.button {
             let image = NSImage(
                 systemSymbolName: Config.statusItemSymbolName,
