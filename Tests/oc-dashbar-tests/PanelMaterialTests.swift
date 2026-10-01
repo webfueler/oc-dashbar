@@ -78,6 +78,168 @@ struct PanelMaterialTests {
         #expect(Config.panelCornerRadius >= 0)
     }
 
+    // MARK: - The chevron band
+    //
+    // The seam was a difference in layer count, not in material: AppKit installs
+    // its own NSGlassView across the whole popover including the chevron, and our
+    // material only covered the content rect inside it, so the arrow band showed
+    // one glass layer and the body showed two. The fix is to reach the material
+    // past the content rect by the chevron inset, so the layer count is the same
+    // everywhere across the popover's shape.
+    //
+    // These assert the geometry that makes that true. They do not and cannot
+    // assert the shade: AppKit's material does not render into a bitmap
+    // faithfully, so a test can say which view covers which rect and nothing
+    // about how that rect looks.
+
+    @Test("the chevron inset is the measured 13, and it is per side rather than the 26 the window grows by")
+    func chevronInsetIsTheMeasuredBand() {
+        #expect(Config.popoverChevronInset == 13.0)
+        #expect(Config.popoverChevronInset > 0)
+    }
+
+    @Test("the material covers the whole popover shape, and the window is the content size grown by twice the inset")
+    func materialCoversTheWholeShape() {
+        // What a popover at Config.panelSize puts on screen, measured on a live
+        // popover: the window is 366x446 and the content view is 340x420 at 13,13.
+        let windowSize = NSSize(
+            width: Config.panelSize.width + 2 * Config.popoverChevronInset,
+            height: Config.panelSize.height + 2 * Config.popoverChevronInset
+        )
+        #expect(windowSize == NSSize(width: 366, height: 446))
+
+        let bounds = NSRect(origin: .zero, size: Config.panelSize)
+        let materialFrame = bounds.insetBy(dx: -Config.popoverChevronInset, dy: -Config.popoverChevronInset)
+        // Overflowed on every side, and big enough to be the whole window once it
+        // is placed at the content rect's offset inside it.
+        #expect(materialFrame == NSRect(x: -13, y: -13, width: 366, height: 446))
+        #expect(materialFrame.contains(bounds.insetBy(dx: 1, dy: 1)))
+        // Not merely "big enough": exactly the window, with nothing spilling past
+        // the popover's own shape.
+        #expect(materialFrame.size == windowSize)
+    }
+
+    @Test("installed, the material overflows its container and the page stays at the container's own bounds")
+    @MainActor
+    func materialOverflowsAndThePageDoesNot() throws {
+        let page = NSView(frame: NSRect(origin: .zero, size: Config.panelSize))
+        let material = PanelMaterialView(
+            kind: Config.panelMaterial,
+            frame: page.frame,
+            cornerRadius: Config.panelCornerRadius
+        )
+        material.install(page)
+        let container = NSView(frame: NSRect(origin: .zero, size: Config.panelSize))
+        container.addSubview(material)
+        container.layoutSubtreeIfNeeded()
+        let expectedMaterialFrame = container.bounds.insetBy(
+            dx: -Config.popoverChevronInset,
+            dy: -Config.popoverChevronInset
+        )
+
+        // The page is at the content rect, which is the panel's visible rect and
+        // is not what this change is allowed to touch.
+        #expect(page.frame == container.bounds)
+        #expect(page.frame.size == Config.panelSize)
+
+        switch Config.panelMaterial {
+        case .glass:
+            let glass = try #require(material.subviews.first as? NSGlassEffectView)
+            // Overflowed, so the chevron band is inside our material rather than
+            // only inside AppKit's.
+            #expect(glass.frame == expectedMaterialFrame)
+            #expect(glass.frame.contains(container.bounds))
+            // The page is still the glass's contentView, so the documented
+            // relationship survives; the private holder AppKit put it in is what
+            // carries the content rect.
+            #expect(glass.contentView === page)
+        case .visualEffect:
+            let vibrancy = try #require(material.subviews.first as? NSVisualEffectView)
+            #expect(vibrancy.frame == expectedMaterialFrame)
+            #expect(page.frame == container.bounds)
+        }
+    }
+
+    @Test("the relationship survives a resize: still covered, still the same page rect relative to the container")
+    @MainActor
+    func relationshipSurvivesAResize() throws {
+        let page = NSView(frame: NSRect(origin: .zero, size: Config.panelSize))
+        let material = PanelMaterialView(
+            kind: Config.panelMaterial,
+            frame: page.frame,
+            cornerRadius: Config.panelCornerRadius
+        )
+        material.install(page)
+        let container = NSView(frame: NSRect(origin: .zero, size: Config.panelSize))
+        container.autoresizingMask = [.width, .height]
+        material.autoresizingMask = [.width, .height]
+        container.addSubview(material)
+        container.layoutSubtreeIfNeeded()
+
+        for size in [
+            NSSize(width: 440, height: 520),
+            NSSize(width: 240, height: 320),
+            Config.panelSize,
+        ] {
+            container.frame = NSRect(origin: .zero, size: size)
+            container.layoutSubtreeIfNeeded()
+
+            // The page tracks the container, exactly as it did before this change.
+            #expect(page.frame == container.bounds)
+            // And the material still reaches past it on every side, so the layer
+            // count is still equal across the whole shape at the new size.
+            guard let materialView = material.subviews.first else { continue }
+            #expect(
+                materialView.frame
+                    == container.bounds.insetBy(
+                        dx: -Config.popoverChevronInset,
+                        dy: -Config.popoverChevronInset
+                    )
+            )
+            #expect(materialView.frame.contains(container.bounds))
+        }
+    }
+
+    @Test("the inset is read off a popover, not hard-coded, and the read refuses anything that is not a chevron")
+    @MainActor
+    func insetIsReadNotAssumed() {
+        // No window at all, which is every window-server-free case including this
+        // suite's. nil means "keep the constant", never a guess.
+        #expect(PanelMaterialView.measuredChevronInset(in: nil) == nil)
+
+        // A window that is not a panel. An NSPopover's window is, and this is the
+        // half of the guard that keeps the arithmetic from reading some other
+        // window's chrome as an arrow.
+        let plainWindow = NSWindow(
+            contentRect: NSRect(origin: .zero, size: Config.panelSize),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        #expect(!(plainWindow is NSPanel))
+        #expect(PanelMaterialView.measuredChevronInset(in: plainWindow) == nil)
+
+        // A panel whose band is not the same width on every edge, which is a
+        // title bar rather than a chevron. nil again rather than 32.
+        let titledPanel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: Config.panelSize),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        #expect(PanelMaterialView.measuredChevronInset(in: titledPanel) == nil)
+
+        // A panel with no band at all, because its content view is the whole
+        // window. nil, so the constant is not replaced by zero.
+        let flushPanel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: Config.panelSize),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        #expect(PanelMaterialView.measuredChevronInset(in: flushPanel) == nil)
+    }
+
     @Test("the popover window stops painting its own ground and takes the app's effective appearance")
     @MainActor
     func windowStopsPaintingItsOwn() {

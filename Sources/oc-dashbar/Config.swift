@@ -258,6 +258,25 @@ enum Config {
     /// this is the one edit if they do not.
     static let panelCornerRadius: CGFloat = 8.0
 
+    /// How far the popover window's own bounds sit outside the content rect, per
+    /// edge. This is the chevron band: `popover.contentSize` does not account for
+    /// the arrow, so the window is the content size grown by twice this on each
+    /// axis and the content view is centred inside it.
+    ///
+    /// **Measured, not documented.** It is in no header on this SDK. It read
+    /// 13.0 at content sizes 340x420, 500x600 and 200x150, and the flatness
+    /// across those three is why it is a constant and not a formula. Note that
+    /// it is 13 per side and not 26: the growth is 26 in total, 13 of it on each
+    /// edge, and doubling it is the natural mistake.
+    ///
+    /// The material view reads this at run time rather than trusting it, by
+    /// measuring the gap between the popover window's frame view and the content
+    /// view's rect, and this is only what it starts from and what it falls back
+    /// to before a window exists. So if a future macOS moves the band, the
+    /// layout follows it; if the read ever fails, this number is what the panel
+    /// is built with and the mismatch is a shade seam, not a wrong panel.
+    static let popoverChevronInset: CGFloat = 13.0
+
     /// The opacity actually handed to AppKit, as a pure function so the range is
     /// covered by a test. A non-finite value falls back to the untouched
     /// material rather than propagating a NaN into a view property.

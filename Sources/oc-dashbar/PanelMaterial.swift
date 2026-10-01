@@ -33,7 +33,17 @@ final class PanelMaterialView: NSView {
 
     private let effect: Effect
 
+    /// How far the material reaches past this view's bounds, per edge. The
+    /// chevron band's width, and it is what makes the material cover the whole
+    /// popover shape rather than only the content rect inside it.
+    ///
+    /// Starts at the measured constant because there is no window to measure
+    /// against until the popover shows, and is corrected in `viewDidMoveToWindow`
+    /// when there is one.
+    private var chevronInset: CGFloat
+
     init(kind: PanelMaterialKind, frame: NSRect, cornerRadius: CGFloat) {
+        self.chevronInset = Config.popoverChevronInset
         switch kind {
         case .glass:
             self.effect = .glass(Self.makeGlass(frame: frame, cornerRadius: cornerRadius))
@@ -66,6 +76,93 @@ final class PanelMaterialView: NSView {
         }
     }
 
+    /// The chevron band, read off the live popover rather than assumed.
+    ///
+    /// `popover.contentSize` does not account for the arrow, so the window is
+    /// larger than the content view on every edge and the difference is the band.
+    /// Two conditions keep this from reading something that is not a chevron:
+    /// the window has to be a panel, which is what an `NSPopover` puts up, and all
+    /// four edges have to agree. A titled window fails the second test on its own
+    /// and reads nil rather than 32, which is the title bar.
+    ///
+    /// No `hasFullSizeContent` and no `safeAreaInsets`: this SDK's
+    /// `safeAreaInsets` is zero on a popover unless `hasFullSizeContent` is on,
+    /// and turning it on is the mechanism that moves the page. Measured across
+    /// three content sizes, so this is a read of the real thing and not a
+    /// formula in disguise.
+    static func measuredChevronInset(in window: NSWindow?) -> CGFloat? {
+        guard let window, window is NSPanel,
+            let content = window.contentView, let frameView = content.superview
+        else { return nil }
+        let rect = content.convert(content.bounds, to: frameView)
+        let bounds = frameView.bounds
+        let edges = [
+            rect.minX - bounds.minX,
+            bounds.maxX - rect.maxX,
+            rect.minY - bounds.minY,
+            bounds.maxY - rect.maxY,
+        ]
+        // A chevron band is the same width on every edge. Anything else is some
+        // other window's chrome and is not ours to compensate for.
+        guard let narrowest = edges.min(), let widest = edges.max(),
+            narrowest > 0, widest - narrowest < 0.5
+        else { return nil }
+        return narrowest
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let measured = Self.measuredChevronInset(in: window),
+            measured != chevronInset
+        else { return }
+        chevronInset = measured
+        layoutMaterial()
+    }
+
+    /// Puts the material where it belongs for the current inset: covering the
+    /// whole popover shape, with the page still at the content rect inside it.
+    ///
+    /// The order matters and every step of it was measured. `contentView`
+    /// assignment resizes and repositions the page into a private
+    /// `ContentHolderView` and sets `translatesAutoresizingMaskIntoConstraints`
+    /// to false on both it and the page, and that does not survive a frame write
+    /// alone: the next layout pass throws the frame away and snaps the holder to
+    /// the glass's bounds, which is what grows the panel. So `contentView` is
+    /// assigned first, both views go back under autoresizing control, and only
+    /// then is the glass expanded.
+    private func layoutMaterial() {
+        let materialFrame = bounds.insetBy(dx: -chevronInset, dy: -chevronInset)
+        // The content rect, expressed in the material's own coordinates. The
+        // material starts at -chevronInset, so the same rect is +chevronInset
+        // from the material's origin. This is `bounds` again by the time it is
+        // counted in this view's coordinates, which is the whole point: the page
+        // does not move and the panel does not change size.
+        let contentFrame = NSRect(
+            x: chevronInset,
+            y: chevronInset,
+            width: bounds.width,
+            height: bounds.height
+        )
+        switch effect {
+        case .glass(let glass):
+            glass.autoresizingMask = [.width, .height]
+            glass.frame = materialFrame
+            guard let content = glass.contentView, let holder = content.superview else { return }
+            holder.translatesAutoresizingMaskIntoConstraints = true
+            content.translatesAutoresizingMaskIntoConstraints = true
+            holder.autoresizingMask = [.width, .height]
+            holder.frame = contentFrame
+            content.frame = holder.bounds
+            content.autoresizingMask = [.width, .height]
+        case .visualEffect(let vibrancy):
+            vibrancy.autoresizingMask = [.width, .height]
+            vibrancy.frame = materialFrame
+            guard let content = vibrancy.subviews.first else { return }
+            content.frame = contentFrame
+            content.autoresizingMask = [.width, .height]
+        }
+    }
+
     /// The macOS 26 half of the fork. `@available` sits on the declaration and
     /// the call above is unguarded on purpose: with the floor at macOS 26 this
     /// compiles, and lowering `platforms:` turns this line into a build error
@@ -91,6 +188,7 @@ final class PanelMaterialView: NSView {
         case .visualEffect(let vibrancy):
             vibrancy.addSubview(content)
         }
+        layoutMaterial()
     }
 
     /// Not reachable: the popover builds this view in code and nothing in the
