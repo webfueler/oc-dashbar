@@ -6,13 +6,23 @@ Edit this file in place for each release.
 
 oc-dashbar is a macOS menu bar shell for the [oc-dash](https://github.com/webfueler/oc-dash) dashboard. It puts a status item in the menu bar; the popover behind it holds a webview pointed at the dashboard's `/widget` page. The numbers come from oc-dash, and this app is the frame around them.
 
+## 1.0.1 adds an icon
+
+The app has an icon now. 1.0.0 shipped without one and is left exactly as it was, so take 1.0.1 if the icon is why you came and stay on 1.0.0 if it is not.
+
+The artwork is the dashboard's own mark: the dark tile, blue chevron and green cursor block of the `>_` in oc-dash's favicon, with the light-mode variants resolved to the dark values so the dark one is what ships. It fills the whole square it is handed and macOS 26 does the rounding and the padding itself, so neither the shape nor the inset is baked in: an icon that arrives pre-rounded gets shrunk a second time. `Scripts/build-app.sh` builds it from `Assets/AppIcon.svg`, rendering each of the ten sizes an `.icns` carries at that size, from the vector.
+
+Nothing else changed. The popover, the widget URL, the order the dashboard is found in, the start control and the quit control all behave as they did in 1.0.0.
+
+The app is `LSUIElement`, so there is no Dock tile. The icon is what Finder shows, what Get Info shows, what Spotlight shows, what a login item shows, and what the unzipped bundle carries.
+
 ## Install
 
-Download `oc-dashbar-1.0.0.zip` and `oc-dashbar-1.0.0.zip.sha256`, then:
+Download `oc-dashbar-1.0.1.zip` and `oc-dashbar-1.0.1.zip.sha256`, then:
 
 ```sh
-shasum -a 256 -c oc-dashbar-1.0.0.zip.sha256
-unzip oc-dashbar-1.0.0.zip
+shasum -a 256 -c oc-dashbar-1.0.1.zip.sha256
+unzip oc-dashbar-1.0.1.zip
 mv oc-dashbar.app /Applications/
 ```
 

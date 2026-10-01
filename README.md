@@ -10,15 +10,19 @@ it: status item, popover, URL, app bundle, and nothing else.
 ## Download
 
 Releases are on GitHub: <https://github.com/webfueler/oc-dashbar/releases/latest>.
-The first one is 1.0.0, and its two assets are `oc-dashbar-1.0.0.zip` and
-`oc-dashbar-1.0.0.zip.sha256`. Later releases carry their own version in the
-same two names.
+That `latest` link is the current release and always will be, so it is the one to
+bookmark rather than a version number. The current one is 1.0.1, its two assets
+are `oc-dashbar-1.0.1.zip` and `oc-dashbar-1.0.1.zip.sha256`, and later releases
+carry their own version in those same two names.
 
 ```sh
-shasum -a 256 -c oc-dashbar-1.0.0.zip.sha256   # prints: oc-dashbar-1.0.0.zip: OK
-unzip oc-dashbar-1.0.0.zip
+shasum -a 256 -c oc-dashbar-1.0.1.zip.sha256   # prints: oc-dashbar-1.0.1.zip: OK
+unzip oc-dashbar-1.0.1.zip
 mv oc-dashbar.app /Applications/               # or drag it there in Finder
 ```
+
+Earlier releases stay on the same page under their own tags, so 1.0.0 is still
+there to download; it is the only one without an app icon.
 
 ### The first launch is stopped by Gatekeeper
 
