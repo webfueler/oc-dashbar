@@ -107,4 +107,74 @@ struct OfflinePageTests {
     func compressedBound() {
         #expect(OfflinePage.html(tried: nil, registryPath: registry, waitSeconds: 1).contains("var wait = 1000;"))
     }
+
+    // MARK: - Transparency
+
+    /// The help page paints no ground of its own, so the panel's material and the
+    /// desktop show through it.
+    ///
+    /// This is the same change mission 095 made to the widget page, asserted
+    /// rather than described because a background can come back in a single line
+    /// and nobody would notice until a screenshot did.
+    ///
+    /// The check is on the whole document rather than on one rule, because the
+    /// ground this mission removed was two declarations: `background: Canvas` on
+    /// the body, and a translucent fill on the button. A test that only looked at
+    /// `body` would pass with the button's fill still there, and a fill on the
+    /// most prominent control on the page is still a ground for that control.
+    @Test("the document paints no background at all, so the panel's material shows through it")
+    func noBackground() {
+        #expect(!html.lowercased().contains("background"))
+        // The two that were there, named so the failure says what came back.
+        // `Canvas` on its own would be wrong to assert: `CanvasText` is a colour
+        // the page still uses and it contains the same substring.
+        #expect(!html.contains("background: Canvas"))
+        #expect(!html.contains("rgba(127, 127, 127, 0.18)"))
+        // And the two system keywords are still there as inks, which is the point
+        // of the change: the page lost its ground, not its palette.
+        #expect(html.contains("color: CanvasText"))
+        #expect(html.contains("color: LinkText"))
+    }
+
+    @Test("no scrim, no tint and no text shadow either")
+    func noScrimOrTint() {
+        // The Captain declined this trade for the widget page, so the help page
+        // does not get it either. A text shadow is the quiet way contrast gets
+        // bought, and a pseudo-element scrim is the quiet way a page grows a
+        // background it does not declare.
+        #expect(!html.contains("text-shadow"))
+        #expect(!html.contains("box-shadow"))
+        #expect(!html.contains("::before"))
+        #expect(!html.contains("::after"))
+        #expect(!html.contains("opacity:"))
+        #expect(!html.lowercased().contains("filter:"))
+    }
+
+    @Test("the page is transparent with no URL too, not only on the path that has one")
+    func transparentOnEveryPath() {
+        // Both call sites build the same document, but they take different
+        // arguments, and the retry paragraph is the one that varies. Checking
+        // only the URL-carrying variant would leave the other one unpinned.
+        #expect(!OfflinePage.html(tried: nil, registryPath: registry).lowercased().contains("background"))
+        #expect(
+            !OfflinePage.html(tried: tried, registryPath: registry, waitSeconds: 1).lowercased().contains("background")
+        )
+    }
+
+    /// The inks still come from the system, which is what makes the page legible
+    /// against whatever is behind the panel.
+    ///
+    /// Pinned because removing the body's background also removes the context
+    /// that made `CanvasText` resolve, and a later edit that replaced these with
+    /// fixed hex values would make the page unreadable on one of the two
+    /// appearances while still looking right in a screenshot of the other.
+    @Test("the inks are still the system's, so they follow the appearance behind the panel")
+    func inksFollowTheAppearance() {
+        #expect(html.contains("color-scheme: light dark"))
+        #expect(html.contains("color: CanvasText"))
+        #expect(html.contains("color: LinkText"))
+        #expect(html.contains("--dim"))
+        // Both appearances are still served, so the page does not go fixed.
+        #expect(html.contains("@media (prefers-color-scheme: dark)"))
+    }
 }

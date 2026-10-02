@@ -39,6 +39,20 @@ import Foundation
 /// out. The bound is `Config.startWatchTimeout`, the same 25 seconds the shell
 /// itself watches a start for, so the page stops pretending at the moment the
 /// shell stops watching.
+///
+/// The document paints no background of its own. `background: Canvas` on the
+/// body was an opaque slab that sat between the help page and the panel
+/// material underneath it, which is the same ground mission 095 took off the
+/// widget page: with it gone the help page's transparent pixels composite over
+/// the material and the desktop, exactly as the widget's do.
+///
+/// Both declarations went, and the distinction is worth keeping: the body's was
+/// the page's ground and the button's was a fill on a control. A control you can
+/// see is not a ground, and removing the button's fill would leave the most
+/// prominent thing on the page with nothing but a 45% grey hairline to find it
+/// by. What is deliberately absent is any substitute: no scrim behind the text,
+/// no tint on the ink, no text shadow. Contrast on this panel is measured and
+/// reported rather than bought.
 enum OfflinePage {
     /// How one offline page is loaded: the document, and the URL WebKit is told
     /// it belongs at.
@@ -104,7 +118,7 @@ enum OfflinePage {
             @media (prefers-color-scheme: dark) { :root { --dim: #b4b4b4; } }
             html, body { height: 100%; margin: 0; }
             body { display: flex; align-items: center; justify-content: center; box-sizing: border-box;
-                   padding: 24px; text-align: center; background: Canvas; color: CanvasText;
+                   padding: 24px; text-align: center; color: CanvasText;
                    font: 13px/1.45 -apple-system, system-ui, sans-serif; }
             main { max-width: 100%; }
             h1 { font-size: 13px; font-weight: 600; margin: 0 0 14px; }
@@ -112,7 +126,7 @@ enum OfflinePage {
             p:last-child { margin-bottom: 0; }
             button { font: inherit; padding: 6px 16px; border-radius: 7px;
                      border: 1px solid rgba(127, 127, 127, 0.45);
-                     background: rgba(127, 127, 127, 0.18); color: CanvasText; }
+                     color: CanvasText; }
             button:disabled { color: var(--dim); }
             code { font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: CanvasText;
                    overflow-wrap: anywhere; }
