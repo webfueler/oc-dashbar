@@ -70,6 +70,25 @@ enum Config {
     /// so the two repositories reconcile on one string.
     static var openURLString: String { "\(quitScheme)://\(openHost)" }
 
+    /// The fourth verb, on the same scheme, and the only one the page sends to
+    /// report a loss rather than to ask for something.
+    ///
+    /// The widget page emits `oc-dash://offline` when it notices the dashboard
+    /// is gone. This shell answers it by showing its own help page, which is the
+    /// same document the panel falls back to when a load fails. The page cannot
+    /// load a document itself and does not try; it says so and this shell swaps.
+    ///
+    /// Deliberately not a fifth scheme and not a `reload`: a reload would be a
+    /// retry the page asked for on its own behalf, and this verb is not a retry.
+    /// It carries no target either, because "the dashboard is gone" is all it
+    /// says, and the page that knows which URL to retry is the page the retry
+    /// link belongs to.
+    static let offlineHost = "offline"
+
+    /// The URL the widget emits when the dashboard stops answering:
+    /// `<quitScheme>://<offlineHost>`.
+    static var offlineURLString: String { "\(quitScheme)://\(offlineHost)" }
+
     /// The binaries the start verb looks for on the login shell's PATH, in
     /// this order, and stops at the first one found.
     ///

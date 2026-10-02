@@ -530,7 +530,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
             // Logged rather than silent. A page emitting this has a bug or an
             // out-of-date shell half, and either way it is worth seeing.
             Log.info(
-                "cancelled \(url): our scheme, but not \(Config.quitHost), \(Config.startHost) or \(Config.openHost)"
+                "cancelled \(url): our scheme, but not \(Config.quitHost), \(Config.startHost),"
+                    + " \(Config.openHost) or \(Config.offlineHost)"
             )
             decisionHandler(.cancel)
         case .cancelForeignScheme(let scheme):
@@ -545,6 +546,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         case .openInBrowser(let url):
             decisionHandler(.cancel)
             act(on: .openInBrowser(url))
+        case .showOfflinePage:
+            // Cancelled before the swap, and in that order. Left uncancelled,
+            // WebKit would try to resolve a scheme no handler owns and put its
+            // own error page in the panel; cancelled, nothing is half-loaded
+            // while the help page is on its way.
+            decisionHandler(.cancel)
+            act(on: .showOfflinePage)
         }
     }
 
@@ -576,6 +584,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         case .openInBrowser(let url):
             Log.info("open intent received: \(url.absoluteString)")
             openAction(url)
+        case .showOfflinePage:
+            // The page said the dashboard is gone. It could be wrong, so this says
+            // where the belief came from rather than only what happened, and the
+            // URL named is the one the panel believes it was showing.
+            Log.info(
+                "offline intent received, from \(Config.offlineURLString), showing the offline page"
+            )
+            showOfflinePage(for: loadedWidgetURL)
         }
     }
 
@@ -607,9 +623,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
 
     /// The one place the offline page is put in the panel.
     ///
-    /// Two callers reach it: a load that failed, and a resolution that produced
-    /// nothing to load. One method rather than two call sites because the base
-    /// URL below is load-bearing and a third caller added later would not know it.
+    /// Three callers reach it: a load that failed, a resolution that produced
+    /// nothing to load, and the `Config.offlineURLString` verb the page emits
+    /// when it notices the dashboard is gone. One method rather than three call
+    /// sites because the base URL below is load-bearing and a fourth caller
+    /// added later would not know it.
     ///
     /// `baseURL` is the failed URL, not nil, and that is a fix rather than
     /// tidiness. With a nil base URL the webview's URL is `about:blank`, and

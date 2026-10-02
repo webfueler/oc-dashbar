@@ -53,6 +53,17 @@ enum PanelNavigation {
         /// shell is counting opens for a reason.
         case openInBrowser(URL)
 
+        /// The page reported that the dashboard is no longer answering. Cancel
+        /// the load, then show this shell's own help page.
+        ///
+        /// Not counted, unlike quit and start, and that is the point rather than
+        /// an omission: those two are requests a person made twice, and which
+        /// one is part of the answer. This one is a report about the state of
+        /// the world, so a second one carries no more information than the first
+        /// and an ordinal would only invite somebody to look for deduplication
+        /// that is not wanted.
+        case showOfflinePage
+
         /// Our own scheme, but not a verb we answer, so it is a URL the page
         /// should not have produced. Cancelled. Never navigated.
         case cancelUnknownHost(String)
@@ -86,6 +97,9 @@ enum PanelNavigation {
             if isVerbURL(url, host: Config.openHost) {
                 return openTarget(in: url).map(Decision.openInBrowser) ?? .cancelUnknownHost(url.absoluteString)
             }
+            if isVerbURL(url, host: Config.offlineHost) {
+                return .showOfflinePage
+            }
             return .cancelUnknownHost(url.absoluteString)
         }
         if Config.navigableSchemes.contains(scheme) {
@@ -103,12 +117,15 @@ enum PanelNavigation {
     /// `URL` keeps the case the page wrote, and both are case-insensitive per
     /// RFC 3986.
     ///
-    /// The path is constrained to empty or "/" for all three verbs, so
+    /// The path is constrained to empty or "/" for every verb, so
     /// `oc-dash://quit/extra` and `oc-dash://start-server/extra` are not ours.
     /// One host means one action, and a wider match would let a typo in the
     /// page's URL construction become a way to terminate the app or a second
     /// way to start it. The query is not part of the match; the open verb reads
-    /// its target out of the query afterwards, in `openTarget(in:)`.
+    /// its target out of the query afterwards, in `openTarget(in:)`. The offline
+    /// verb ignores the query for the same reason it ignores a path: a report
+    /// that the dashboard is gone does not carry a payload, and ignoring one
+    /// means a page that adds a cache-buster cannot fail to be heard.
     ///
     /// The quit half of this is worth saying because it is the one that can
     /// end the process: relaxing this to a host-only match would turn

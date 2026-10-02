@@ -60,8 +60,9 @@ enum OfflinePage {
 
     /// The load for a failed attempt at `tried`.
     ///
-    /// One entry point, so the callers that show this page cannot drift apart on
-    /// the base URL.
+    /// One entry point, so the three callers that show this page — a failed load,
+    /// a resolution that produced nothing, and the `Config.offlineURLString`
+    /// verb — cannot drift apart on the base URL.
     static func load(tried: URL?, registryPath: String) -> Load {
         Load(html: html(tried: tried, registryPath: registryPath), baseURL: tried)
     }
