@@ -6,74 +6,66 @@ Edit this file in place for each release.
 
 oc-dashbar is a macOS menu bar shell for the [oc-dash](https://github.com/webfueler/oc-dash) dashboard. It puts a status item in the menu bar; the popover behind it holds a webview pointed at the dashboard's `/widget` page. The numbers come from oc-dash, and this app is the frame around them.
 
-## 1.1.0: a transparent panel and today's money in the menu bar
+## 1.2.0: the panel recovers on its own, and the help page is transparent
 
 Three things a person can see, and no migration.
 
-**The panel is transparent.** Your desktop shows through it. There is no frosted
-slab in the middle of the screen any more; the widget floats on the wallpaper
-and only its own content is drawn. This is a change to how the panel composites
-rather than to what it shows, and it is the reason this is a minor release rather
-than a patch.
-
-It works by telling WebKit not to paint a background behind the page. The knob
-that does that is a private one, undocumented in any header on the SDK, written
-by name rather than by a compile-checked property. It is called out in the code
-because it matters: if a future macOS stops honouring it, this app will launch
-normally and the panel will be opaque again, with nothing in the log saying why.
-The README says what to look at if you ever see that.
-
-**Today's spend sits in the menu bar**, to the right of the icon, as `$12.34`,
-refreshed every 30 seconds on the same clock the widget page itself refreshes
-on. It is the server's own `costText`, byte for byte: nothing on this side
-parses it, reformats it or compares it to zero, so a day with no spend reads
-`$0.00` and a large one reads `$1,234,567.90` rather than being abbreviated or
-rounded.
-
-When there is no figure to show, the space is empty rather than showing a dash, a
-zero, a question mark or the last number it saw. A stale number is a lie with a
-timestamp on it. The cases that mean "no figure" are separate in the log, so an
-empty menu bar is never ambiguous between "the dashboard is not running", "the
-dashboard answered but had nothing for today", and "the request failed":
+**The panel puts up its own help page when the dashboard stops answering**, not
+only when a load fails. Until now the shell found out the dashboard was gone by
+failing to load it. Now the widget page notices for itself, says so with
+`oc-dash://offline`, and the shell answers by swapping in the same help page it
+shows on a failed load. The page cannot load a document into the panel, so it
+reports and the shell does the swapping. The log line says where the belief came
+from, not just what happened:
 
 ```
-[oc-dashbar] today money: GET http://127.0.0.1:4021/api/summary?range=today&context=none
-[oc-dashbar] today money: title is now $12.34, admitted=1 skipped=0
-[oc-dashbar] today money: hidden, costText was missing, null or blank, admitted=2 skipped=0
+[oc-dashbar] offline intent received, from oc-dash://offline, showing the offline page
 ```
 
-The figure asks whichever server the panel is reading, resolved by the same
-three-step rule the panel uses, and re-resolved on every tick rather than once at
-launch, so a dashboard you restart or move to another port is picked up while the
-widget sits in the menu bar. One request at a time, ever: a tick that arrives
-while the last one is still in flight is skipped, not queued, so a slow server
-cannot become a pile of requests.
+The verb is answered on the same terms as the other three: the path must be empty
+or `/`, a query is ignored, and a path beyond the verb is cancelled and never
+acted on. It carries no target, because "the dashboard is gone" is all it says.
 
-**A Dashboard button opens the dashboard in your browser.** The widget page's
-footer button sends `oc-dash://open`, the shell takes it, and it hands the URL to
-your real browser. The app never navigates its own webview away to do it, so the
-panel stays exactly as it was. Only loopback addresses are accepted, and the
-shell writes the request to the log either way:
+**The help page is transparent**, like the panel. In 1.1.0 it painted an opaque
+`Canvas` background, so a dashboard that went away produced a grey slab floating
+over your desktop, with none of the translucency the panel has. Every background
+declaration is gone, so the help page composites over the same material the
+widget does. There is no scrim behind the text and no shadow on the ink to buy
+the contrast back: the text still uses the system's own `CanvasText` and
+`LinkText`, so it follows your light or dark appearance on its own. If the help
+page ever looks hard to read against a busy wallpaper, that is a real
+observation and worth reporting, not something this release papers over.
 
-```
-[oc-dashbar] open intent received: http://127.0.0.1:4021/
-```
+**Try again now really tries.** This was a bug rather than a feature, found
+while looking for something else and reproduced on the first attempt. The help
+page used to be loaded with a nil base URL, which leaves the webview's URL as
+`about:blank`, and reloading `about:blank` produces an empty document rather than
+a page. Measured with a real webview: 128 bytes of document became 39 and every
+element was gone, so a reload gesture while the help page was up blanked the
+panel instead of retrying anything. The URL that failed is now the base, so a
+reload re-navigates it. Dashboard back, you get the widget. Dashboard still down,
+you get this page again through the same failure path. A reload is a retry now.
 
-Nothing else changed. The popover size, the widget URL, the order the dashboard
-is found in, the start control and the quit control all behave as they did in
-1.0.1. 1.0.1 and 1.0.0 stay downloadable under their own tags.
+That is a new recovery behaviour and a changed offline appearance, which is why
+this is 1.2.0 and not 1.1.1.
+
+Nothing else changed. The popover is still 340x420, the dashboard is still found
+in the same order, the start control, the quit control and the Dashboard button
+all behave as they did in 1.1.0, and the menu bar figure still polls every 30
+seconds and still shows the server's own `costText` byte for byte. 1.1.0, 1.0.1
+and 1.0.0 stay downloadable under their own tags.
 
 The app is `LSUIElement`, so there is no Dock tile. Quit from the widget's own
 quit control.
 
 ## Install
 
-Download `oc-dashbar-1.1.0.zip` and `oc-dashbar-1.1.0.zip.sha256` from
+Download `oc-dashbar-1.2.0.zip` and `oc-dashbar-1.2.0.zip.sha256` from
 <https://github.com/webfueler/oc-dashbar/releases/latest>, then:
 
 ```sh
-shasum -a 256 -c oc-dashbar-1.1.0.zip.sha256
-unzip oc-dashbar-1.1.0.zip
+shasum -a 256 -c oc-dashbar-1.2.0.zip.sha256
+unzip oc-dashbar-1.2.0.zip
 mv oc-dashbar.app /Applications/
 ```
 
@@ -102,12 +94,13 @@ None of them changes the app. It is the same unsigned copy either way.
 
 - macOS 26 (Tahoe) or newer. The popover paints `NSGlassEffectView`, which is a macOS 26 API, and the bundle declares `LSMinimumSystemVersion 26.0`, so an older system refuses to launch it.
 - Something that can run the dashboard: Node 22+ with `npx`, or a global install (`npm i -g @webfueler/oc-dash`). The shell never bundles the dashboard.
-- A dashboard running: `npx @webfueler/oc-dash@latest server start`. When it is not, the shell shows its own offline page with a start button that runs the same command, and the menu bar figure stays empty until one is.
+- A dashboard running: `npx @webfueler/oc-dash@latest server start`. When it is not, the shell shows its own help page with a start button that runs the same command, and the menu bar figure stays empty until one is.
 - opencode2 on the machine with session data, for the dashboard to have numbers to show.
 
 ## After launch
 
 The status item is a waveform icon in the menu bar, with today's spend beside it
-once the dashboard has answered. There is no Dock icon and no app menu, so quit
-from the widget's own quit control. The dashboard keeps running after the shell
-quits; the shell does not own it.
+once the dashboard has answered. The panel is transparent, so your desktop shows
+through it in both states, the live widget and the help page. There is no Dock
+icon and no app menu, so quit from the widget's own quit control. The dashboard
+keeps running after the shell quits; the shell does not own it.

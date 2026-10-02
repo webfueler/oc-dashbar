@@ -11,13 +11,13 @@ it: status item, popover, URL, app bundle, and nothing else.
 
 Releases are on GitHub: <https://github.com/webfueler/oc-dashbar/releases/latest>.
 That `latest` link is the current release and always will be, so it is the one to
-bookmark rather than a version number. The current one is 1.1.0, its two assets
-are `oc-dashbar-1.1.0.zip` and `oc-dashbar-1.1.0.zip.sha256`, and later releases
+bookmark rather than a version number. The current one is 1.2.0, its two assets
+are `oc-dashbar-1.2.0.zip` and `oc-dashbar-1.2.0.zip.sha256`, and later releases
 carry their own version in those same two names.
 
 ```sh
-shasum -a 256 -c oc-dashbar-1.1.0.zip.sha256   # prints: oc-dashbar-1.1.0.zip: OK
-unzip oc-dashbar-1.1.0.zip
+shasum -a 256 -c oc-dashbar-1.2.0.zip.sha256   # prints: oc-dashbar-1.2.0.zip: OK
+unzip oc-dashbar-1.2.0.zip
 mv oc-dashbar.app /Applications/               # or drag it there in Finder
 ```
 
@@ -29,7 +29,24 @@ built without `--norsrc`. `Scripts/release.sh` refuses to publish a zip that has
 them.
 
 Earlier releases stay on the same page under their own tags. 1.0.0 is the only
-one without an app icon, and both of them predate the transparent panel.
+one without an app icon, and 1.0.1 and 1.0.0 are the two that predate the
+transparent panel.
+
+### What the panel looks like
+
+**The panel is transparent.** Your desktop shows through it. There is no frosted
+slab in the middle of the screen; the widget floats on the wallpaper and only its
+own content is drawn. It works by telling WebKit not to paint a background behind
+the page, through a private key that is written by name because no public API
+does this job. If a future macOS stops honouring that key, the app still launches
+and the panel is simply opaque again, with nothing in the log saying why.
+
+The same is true of the help page, so a dashboard that goes away does not replace
+a transparent panel with a grey one. 1.2.0 also made the panel recover on its own:
+the widget page reports a lost dashboard with `oc-dash://offline` and the shell
+swaps in the help page, and reloading the help page now retries the URL that
+failed instead of blanking the panel. The details are in
+[Starting the dashboard](#starting-the-dashboard) and in the 1.2.0 release notes.
 
 ### The first launch is stopped by Gatekeeper
 
