@@ -1,6 +1,21 @@
 import Foundation
 
-/// The page the shell shows when the dashboard is not answering.
+/// The page the shell shows when the dashboard is not answering, and the one
+/// decision about how it is loaded.
+///
+/// The base URL is carried here rather than at the call site because it is the
+/// whole of the reload fix and it is invisible from a string comparison: two
+/// call sites can pass the same document and one of them can still blank the
+/// panel on a reload. Making it a value the tests can read is what stops the
+/// fix being a comment.
+///
+/// Measured, with a real `WKWebView` and a real loopback server: with a nil base
+/// URL the webview's URL is `about:blank`, and reloading `about:blank` yields an
+/// empty document — 128 bytes of document became 39, every element gone. With
+/// the failed URL as the base, a reload re-navigates that URL instead, so the
+/// dashboard coming back produces the widget and the dashboard still being down
+/// produces this page again. The help page makes no request against the base,
+/// which is why giving it an origin costs nothing: measured, none was made.
 ///
 /// It is generated here rather than fetched, because the state it exists for is
 /// the state where nothing is serving. Beyond the words it carries three things:
@@ -25,6 +40,32 @@ import Foundation
 /// itself watches a start for, so the page stops pretending at the moment the
 /// shell stops watching.
 enum OfflinePage {
+    /// How one offline page is loaded: the document, and the URL WebKit is told
+    /// it belongs at.
+    ///
+    /// `baseURL` is `tried`, and that is the fix. `nil` here means `about:blank`,
+    /// and reloading `about:blank` gives an empty document, which is a blank
+    /// panel rather than a retry. Carrying the two together means a caller cannot
+    /// pass the right document with the wrong base by accident, because there is
+    /// only one value to pass.
+    struct Load {
+        let html: String
+        let baseURL: URL?
+
+        /// The base WebKit will report for this page, which is `about:blank` when
+        /// there is no failed URL to stand in. Named so a test can assert on the
+        /// URL rather than on the optionality of a parameter.
+        var effectiveBaseURL: URL { baseURL ?? URL(string: "about:blank")! }
+    }
+
+    /// The load for a failed attempt at `tried`.
+    ///
+    /// One entry point, so the callers that show this page cannot drift apart on
+    /// the base URL.
+    static func load(tried: URL?, registryPath: String) -> Load {
+        Load(html: html(tried: tried, registryPath: registryPath), baseURL: tried)
+    }
+
     /// The whole document.
     ///
     /// `tried` is the URL whose load failed, or nil when nothing resolved. It

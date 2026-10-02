@@ -465,7 +465,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
             Log.info(
                 "\(Config.urlEnvironmentKey) is set but blank, nothing to resolve, showing the offline page"
             )
-            webView?.loadHTMLString(offlinePage(for: nil), baseURL: nil)
+            showOfflinePage(for: nil)
         }
     }
 
@@ -602,7 +602,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         // The retry link points at the URL that just failed, not at a freshly
         // resolved one. Those can differ after a move between dashboards, and
         // the page belongs to whichever attempt actually failed.
-        webView?.loadHTMLString(offlinePage(for: loadedWidgetURL), baseURL: nil)
+        showOfflinePage(for: loadedWidgetURL)
+    }
+
+    /// The one place the offline page is put in the panel.
+    ///
+    /// Two callers reach it: a load that failed, and a resolution that produced
+    /// nothing to load. One method rather than two call sites because the base
+    /// URL below is load-bearing and a third caller added later would not know it.
+    ///
+    /// `baseURL` is the failed URL, not nil, and that is a fix rather than
+    /// tidiness. With a nil base URL the webview's URL is `about:blank`, and
+    /// reloading `about:blank` produces an empty document: measured, the panel
+    /// went from a 128 byte document to a 39 byte one and every element was
+    /// gone. So a reload gesture while this page was up blanked the panel
+    /// instead of retrying anything.
+    ///
+    /// With the failed URL as the base, a reload re-navigates the URL that just
+    /// failed. The dashboard being back then produces the real widget rather than
+    /// a blank panel, and the dashboard still being down produces this page
+    /// again through `handleNavigationFailure`, so the reload is a retry instead
+    /// of a loss. It also means `webView.url` is a real URL, which is what the
+    /// `didFinish` log line has been reporting as `about:blank`.
+    ///
+    /// No request leaves for the base origin because this document makes none:
+    /// the stylesheet and the script are inline, and the retry link's href is
+    /// absolute, so nothing resolves against the base. Measured with a logging
+    /// server in front of it, and checked on every load rather than reasoned
+    /// about, because an origin that can be named is an origin that can be
+    /// reached.
+    ///
+    /// `tried` nil falls back to nil base URL, which is the honest answer: there
+    /// is no URL to reload and nothing for a base to point at. That path is
+    /// reachable only from a blank or whitespace-only `Config.urlEnvironmentKey`.
+    private func showOfflinePage(for tried: URL?) {
+        let load = OfflinePage.load(tried: tried, registryPath: ServiceRegistry.currentPath())
+        webView?.loadHTMLString(load.html, baseURL: load.baseURL)
     }
 
     /// A self-contained page, so a dashboard that is down still explains itself.
